@@ -58,7 +58,8 @@ export function PatientHero({ patient, demo, onBack, onPhotoEdit, onRefresh, ref
       <div className="sheet-header"><h2>{pane ? titles[pane] : "Сведения"} · {patient.name}</h2><button type="button" className="icon-button" aria-label="Закрыть сведения пациента" onClick={() => setPane(null)}>×</button></div>
       <div hidden={pane !== "info"} className="test3-patient-info">
         <p>{[patient.species,patient.breed,patient.weight ? `${patient.weight} кг` : "",patient.cage ? `Клетка ${patient.cage}` : ""].filter(Boolean).join(" · ")}</p>
-        <p>{patient.diagnoses || "Диагноз не указан"}</p><div onClick={e => { if ((e.target as HTMLElement).closest(".patient-actions button")) setPane(null); }}>{children}</div>
+        <p>{patient.diagnoses || "Диагноз не указан"}</p>
+        {onPhotoEdit && <button type="button" className="secondary" onClick={() => { setPane(null); onPhotoEdit(); }}>Изменить фотографию</button>}<div onClick={e => { if ((e.target as HTMLElement).closest(".patient-actions button")) setPane(null); }}>{children}</div>
       </div>
       <div hidden={pane !== "owner"}><p className={patient.ownerName ? "patient-owner" : undefined}>Владелец: {patient.ownerName || "Данные не указаны"}</p></div>
       <div hidden={pane !== "belongings"}>{belongings || <p>Вещи недоступны в этом источнике данных.</p>}</div>
