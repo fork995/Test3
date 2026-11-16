@@ -46,7 +46,7 @@ jobs:
           path: app/dist
   deploy:
     needs: build
-    if: needs.build.outputs.changed == 'true'
+    if: needs.build.outputs.changed == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -57,3 +57,15 @@ jobs:
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
+
+  request-publication:
+    needs: build
+    if: needs.build.outputs.changed == 'true' && github.ref == 'refs/heads/test3'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Publish verified source through the protected main deployment workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main
