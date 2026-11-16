@@ -39,3 +39,5 @@ export function mountApp(onReady: () => void) {
 }
 
 import "./test3.css";
+
+import "./patientHero.css";

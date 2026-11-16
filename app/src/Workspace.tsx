@@ -1,3 +1,4 @@
+import { PatientHero } from "./PatientHero";
 import { PrescriptionDialog } from "./PrescriptionDialog";
 import type { PrescriptionAction } from "./prescriptions";
 import { HourlyOverview } from "./HourlyOverview";
@@ -1072,54 +1073,22 @@ function Department({
           </>
         ) : selected && tab === "patients" ? (
           <>
-            <button
-              className="secondary small back"
-              onClick={() => {
-                setSelected(null);
-                setPatientActionsOpen(false);
-              }}
-            >
-              ‹ Пациенты
-            </button>
-            <div className="patient-heading">
-              <PatientPhoto
-                patient={selected}
-                demo={source.demo}
-                large
-                onEdit={
-                  writeEnabled ? () => setPhotoPatient(selected) : undefined
-                }
+            <PatientHero patient={selected} demo={source.demo} showActions={patientActionsOpen}
+              onBack={() => { setSelected(null); setPatientActionsOpen(false); }}
+              onPhotoEdit={writeEnabled ? () => setPhotoPatient(selected) : undefined}
+              onRefresh={() => void store.request(selected.cardId, true)}
+              refreshing={selectedData?.phase === "queued" || selectedData?.phase === "loading"}
+              belongings={<>            {source.entities && (
+              <BelongingsPanel
+                key={selected.id}
+                patientId={selected.id}
+                service={source.entities}
+                enabled={writeEnabled}
+                zone={zone}
+                onExpire={() => expire.current()}
               />
-              <div>
-                <h1>{selected.name}</h1>
-                <p className="micro">
-                  {[
-                    selected.species,
-                    selected.weight ? `${selected.weight} кг` : "",
-                    selected.cage ? `Клетка ${selected.cage}` : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                <SeverityBadge value={selected.severity} />
-              </div>
-              <button
-                className="secondary small"
-                disabled={
-                  selectedData?.phase === "queued" ||
-                  selectedData?.phase === "loading"
-                }
-                onClick={() => void store.request(selected.cardId, true)}
-              >
-                Обновить
-              </button>
-            </div>
-            {selected.diagnoses && (
-              <p className="diagnosis">{selected.diagnoses}</p>
             )}
-<details className="test3-patient-info"><summary>Сведения, владелец и личные вещи</summary>            {selected.ownerName && (
-              <p className="patient-owner">Владелец: {selected.ownerName}</p>
-            )}
+</>}>
             {source.discharge && cardState(selected) === "active" && (
               <details
                 className="patient-actions"
@@ -1190,30 +1159,7 @@ function Department({
                 )}
               </details>
             )}
-            {source.entities && (
-              <BelongingsPanel
-                key={selected.id}
-                patientId={selected.id}
-                service={source.entities}
-                enabled={writeEnabled}
-                zone={zone}
-                onExpire={() => expire.current()}
-              />
-            )}
-</details>            {source.prescriptions && (
-              <button
-                className="secondary small"
-                disabled={!writeEnabled || !selectedData?.hasData || !!editing}
-                onClick={() => {
-                  dischargingRef.current = true;
-                  setPrescriptionEdit({ patient: selected, action: "create" });
-                  setWriteNotice("");
-                }}
-              >
-                + Назначение
-              </button>
-            )}
-            {periodBar}
+            </PatientHero>            {periodBar}
             <div className="view-switch" aria-label="Вид назначений">
               <button
                 className={mode === "feed" ? "active" : ""}
@@ -1232,6 +1178,19 @@ function Department({
             </div>
             <details className="test3-category-menu"><summary>{FILTERS.find(([value]) => value === category)?.[1] || "Категории"} ▾</summary>{filters}</details>
             {mode === "feed" && viewFilter}
+            {source.prescriptions && (
+              <button
+                className="secondary small"
+                disabled={!writeEnabled || !selectedData?.hasData || !!editing}
+                onClick={() => {
+                  dischargingRef.current = true;
+                  setPrescriptionEdit({ patient: selected, action: "create" });
+                  setWriteNotice("");
+                }}
+              >
+                + Назначение
+              </button>
+            )}
             <DataState
               data={selectedData}
               onRetry={() => void store.request(selected.cardId, true)}

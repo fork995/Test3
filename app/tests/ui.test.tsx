@@ -171,7 +171,7 @@ it.each(["current", "next", "overdue", "later"] as const)("photo opens the corre
   expect(photo.querySelector(".patient-photo svg")).not.toBeNull();
   const before = calls.length;
   await click(photo);
-  expect(container.querySelector(".individual-workspace .patient-heading")?.textContent).toContain("Одинаковое имя");
+  expect(container.querySelector(".individual-workspace .patient-hero-section")?.textContent).toContain("Одинаковое имя");
   expect(container.querySelector(".individual-workspace")?.textContent).toContain("9.9 кг");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   await click(button("Сетка", container.querySelector(".view-switch")!));
@@ -793,7 +793,7 @@ it("patient list uses compact two-column card content and opens existing actions
   expect(tiles[1].querySelector(".patient-card-diagnosis.is-empty")).not.toBeNull();
 
   await click(first.querySelector(".patient-card-menu")!);
-  expect(container.querySelector(".patient-heading h1")?.textContent).toContain(
+  expect(container.querySelector(".patient-hero-section h1")?.textContent).toContain(
     "Барс",
   );
   expect(container.querySelector<HTMLDetailsElement>(".patient-actions")?.open).toBe(

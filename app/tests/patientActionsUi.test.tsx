@@ -204,6 +204,7 @@ async function mount({
 }
 async function openPatient() {
   await click(container.querySelector(".patient-card")!);
+  await click(button("Сведения"));
   container.querySelector<HTMLDetailsElement>(".patient-actions")!.open = true;
 }
 it.each(Object.entries(SEVERITIES))(
@@ -215,7 +216,7 @@ it.each(Object.entries(SEVERITIES))(
     expect(badge.style.getPropertyValue("--severity-rgb")).toBe(expected.rgb);
     await openPatient();
     expect(
-      container.querySelector(".patient-heading .severity-badge")!.textContent,
+      container.querySelector(".patient-hero-severity")!.textContent,
     ).toBe(expected.label);
   },
 );
@@ -227,9 +228,11 @@ it("omits owner from compact cards but keeps it below diagnosis in patient detai
   );
   expect(container.textContent).not.toMatch(/HIDDEN_PHONE|HIDDEN_EMAIL/);
   await openPatient();
+  await click(container.querySelector('[aria-label="Закрыть сведения пациента"]')!);
+  await click(button("Владелец"));
   const owner = container.querySelector(".patient-owner")!;
-  expect(owner.closest(".test3-patient-info")).not.toBeNull();
-  expect(container.querySelector(".diagnosis")).not.toBeNull();
+  expect(owner.closest(".patient-hero-dialog")).not.toBeNull();
+  expect(container.querySelector(".patient-hero-diagnosis")).not.toBeNull();
   expect(owner.textContent).toContain(
     "Учебная Анна Вымышленная",
   );
@@ -305,6 +308,7 @@ it("excludes current hospital result and current transfer department", async () 
   ].map((e) => e.value);
   expect(choices).not.toContain("TRANSFERRED_TO_ROUND_THE_CLOCK_HOSPITAL");
   await click(button("Отмена", container.querySelector(".discharge-dialog")!));
+  await click(button("Сведения"));
   await click(button("Перевести в другое отделение"));
   await select("Филиал назначения", "b");
   expect(
@@ -338,7 +342,7 @@ it("transfers only after review, keeps card/history and prevents duplicate send"
   await submit(".transfer-dialog");
   await submit(".transfer-dialog");
   expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
-  expect(container.querySelector(".patient-heading")!.textContent).toContain(
+  expect(container.querySelector(".patient-hero-section")!.textContent).toContain(
     "Учебный пациент",
   );
   await act(async () => release());
@@ -371,7 +375,7 @@ it.each(["finish", "transfer"])(
       await submit(".transfer-dialog");
     }
     expect(container.querySelector('dialog [role="alert"]')).not.toBeNull();
-    expect(container.querySelector(".patient-heading")!.textContent).toContain(
+    expect(container.querySelector(".patient-hero-section")!.textContent).toContain(
       "Учебный пациент",
     );
     expect(container.querySelector(".save-notice")).toBeNull();

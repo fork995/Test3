@@ -151,6 +151,7 @@ async function mount(mode: "ok" | "error" | "unverified" = "ok", hold = false) {
 }
 async function openDischarge() {
   await click(container.querySelector(".patient-card")!);
+  await click(button("Сведения"));
   container.querySelector<HTMLDetailsElement>(".patient-actions")!.open = true;
   await click(button("Завершить лечение"));
 }
@@ -189,7 +190,7 @@ it("shows patient thumbnails and larger card photo with nonblocking local fallba
   );
   await click(container.querySelector(".patient-card")!);
   expect(
-    container.querySelector(".patient-heading .patient-photo-large img"),
+    container.querySelector(".patient-hero-photo .patient-photo-large img"),
   ).not.toBeNull();
 });
 it("opens confirmation with patient, department and Moscow time; cancel sends no PATCH", async () => {
@@ -207,7 +208,7 @@ it("opens confirmation with patient, department and Moscow time; cancel sends no
   expect(calls.some((c) => c.method === "PATCH")).toBe(false);
   await click(button("Отмена", d));
   expect(container.querySelector(".discharge-dialog")).toBeNull();
-  expect(container.querySelector(".patient-heading")!.textContent).toContain(
+  expect(container.querySelector(".patient-hero-section")!.textContent).toContain(
     "Учебный пациент 1",
   );
 });
@@ -218,7 +219,7 @@ it("updates active list only after PATCH 200 and both fresh GET confirmations; l
   expect(button("Подтверждение").disabled).toBe(true);
   await submit();
   expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
-  expect(container.querySelector(".patient-heading")!.textContent).toContain(
+  expect(container.querySelector(".patient-hero-section")!.textContent).toContain(
     "Учебный пациент 1",
   );
   await act(async () => release());
@@ -244,7 +245,7 @@ it.each(["error", "unverified"] as const)(
     expect(
       container.querySelector(".discharge-dialog [role=alert]")!.textContent,
     ).toContain("не подтверждено");
-    expect(container.querySelector(".patient-heading")!.textContent).toContain(
+    expect(container.querySelector(".patient-hero-section")!.textContent).toContain(
       "Учебный пациент 1",
     );
     expect(container.querySelector(".save-notice")).toBeNull();

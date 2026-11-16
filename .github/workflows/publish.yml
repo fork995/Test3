@@ -1,0 +1,59 @@
+name: Verify and publish Test3
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, test3]
+permissions:
+  contents: read
+concurrency:
+  group: test3-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.revision.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: fork995/Test3
+          ref: test3
+      - id: revision
+        name: Compare source with last published revision
+        run: |
+          SHA=$(git rev-parse HEAD)
+          LIVE=$(curl -fsS https://fork995.github.io/Test3/source-revision.txt || true)
+          if [ "$SHA" = "$LIVE" ]; then echo 'changed=false' >> "$GITHUB_OUTPUT"; else echo 'changed=true' >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.revision.outputs.changed == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - if: steps.revision.outputs.changed == 'true'
+        run: npm ci --no-audit --no-fund && npm test && npm run build
+        working-directory: app
+      - if: steps.revision.outputs.changed == 'true'
+        run: |
+          git rev-parse HEAD > app/dist/source-revision.txt
+          mkdir -p app/dist/stay
+          cp stay/clevervet-mobile-test3.user.js app/dist/stay/
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.revision.outputs.changed == 'true'
+        with:
+          path: app/dist
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
