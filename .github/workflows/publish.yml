@@ -4,7 +4,7 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, test3]
 permissions:
   contents: read
 concurrency:
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: fork995/Test2
+          repository: fork995/Test3
           ref: test3
       - id: revision
         name: Compare source with last published revision
