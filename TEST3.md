@@ -16,3 +16,5 @@ No real clinical token supplied: authenticated production API calls, actual writ
 ## Patient hero specification
 
 The open patient uses PatientHero.tsx and scoped patientHero.css: 160px cover photo, 24px corner radius, gradient, 32px name, 15px identity/severity, diagnosis, and four actions (information, owner, belongings, refresh). Full diagnosis and administrative actions stay accessible in information. Existing photo editing, belongings service and prescription refresh handlers are reused. CSS object-position can be overridden with --patient-hero-object-position. No patient-home JSX or shared stylesheet/photo implementation changed.
+
+The github-pages environment permits deployment from main only. A verified push to test3 automatically dispatches the main publication workflow with the repository-scoped Actions token. That workflow checks out Test3/test3, repeats verification and publishes the artifact. No source merge into main or Test2 changes are involved. Scheduled checks remain a fallback.
