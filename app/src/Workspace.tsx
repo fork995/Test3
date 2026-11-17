@@ -228,6 +228,7 @@ function Department({
     patient: Patient;
     chain?: import("./model").Chain;
     action: "create" | PrescriptionAction;
+    type?: import("./prescriptions").PrescriptionType;
   } | null>(null);
   const feedMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -1227,6 +1228,12 @@ function Department({
                         ✓ выполнено · × не выполнено · — нет результата · ? статус неизвестен · число — несколько результатов
                       </span>
                       <Grid
+                        category={category}
+                        onCreate={source.prescriptions && writeEnabled && !editing ? (type) => {
+                          dischargingRef.current = true;
+                          setPrescriptionEdit({patient: selected, action: "create", type});
+                          setWriteNotice("");
+                        } : undefined}
                         patientName={selected.name}
                         key={`${period.key}:${category}`}
                         indexes={selectedData.indexes.filter(
@@ -1401,6 +1408,7 @@ function Department({
           patient={prescriptionEdit.patient}
           chain={prescriptionEdit.chain}
           action={prescriptionEdit.action}
+          initialType={prescriptionEdit.type}
           zone={zone}
           service={source.prescriptions}
           onClose={() => {

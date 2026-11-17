@@ -1,3 +1,6 @@
+import { CATEGORIES } from "./model";
+import { medicationCalculation } from "./medication";
+import { solutionRate } from "./solution";
 import { ApiError, safeError } from "./api";
 import {
   cardState,
@@ -24,12 +27,9 @@ import {
   PRESCRIPTION_ROUTES,
   ROUTES_BY_VOLUME,
 } from "./prescriptionCatalog";
-export type PrescriptionType = "MEDICATION" | "NURSING";
+export type PrescriptionType = import("./model").Category;
 export type PrescriptionAction =
-  | "revise"
-  | "finish"
-  | "deleteRevision"
-  | "deleteChain";
+  "revise" | "finish" | "deleteRevision" | "deleteChain";
 export interface PrescriptionDraft {
   name: string;
   type: PrescriptionType;
@@ -125,7 +125,7 @@ export function draftProblem(
 ): string | null {
   if (
     !validZone(d.zone) ||
-    !["MEDICATION", "NURSING"].includes(d.type) ||
+    !CATEGORIES.includes(d.type) ||
     !d.name.trim() ||
     instant(d.start) === null ||
     !(
@@ -137,14 +137,20 @@ export function draftProblem(
       d.periodicity === null ||
       (typeof d.periodicity === "number" &&
         Number.isFinite(d.periodicity) &&
-        d.periodicity >= 0)
+        Number.isInteger(d.periodicity) &&
+        d.periodicity >= 0 &&
+        d.periodicity <= 24)
     )
   )
     return "Проверьте название, начало, периодичность и цвет.";
-  if (d.type === "NURSING")
+  if (d.type === "SOLUTION")
+    return solutionRate(obj(d.specifics)) === null
+      ? "Проверьте компоненты инфузии и массу. Поддержание для массы более 20 кг пока недоступно."
+      : null;
+  if (d.type !== "MEDICATION")
     return d.specifics === undefined
       ? null
-      : "У процедуры не должно быть лекарственных параметров.";
+      : "У этой группы не должно быть лекарственных параметров.";
   const s = obj(d.specifics),
     den = obj(obj(s.concentration).units).volume;
   if (
@@ -165,6 +171,32 @@ export function draftProblem(
     (s.weightKg != null && !positive(s.weightKg))
   )
     return "Укажите корректную массу для расчёта.";
+  const calc = medicationCalculation(s);
+  if (!calc.total || !calc.amount || calc.warnings.length)
+    return "Расчёт количества препарата не подтверждён.";
+  if (
+    obj(obj(s.dosage).units).substance === "MILLILITRE" &&
+    obj(obj(s.concentration).units).substance !== "MILLILITRE"
+  )
+    return "Размерности дозы и концентрации несовместимы.";
+  if (den === "VIAL" && s.solvent == null)
+    return "Укажите объём восстановления флакона.";
+  const time = obj(obj(s.dosage).units).time;
+  if (time != null && s.route !== "INTRAVENOUS")
+    return "ИПС доступна только для внутривенного введения.";
+  if (time != null && d.periodicity !== 1)
+    return "Для ИПС выберите периодичность 1 час.";
+  if (s.supplementarySolvent != null) {
+    const v = obj(s.supplementarySolvent).volume;
+    if (
+      calc.amount.unit !== "MILLILITRE" ||
+      typeof v !== "number" ||
+      !Number.isFinite(v) ||
+      v < 0 ||
+      !Number.isFinite(calc.amount.value + v)
+    )
+      return "Проверьте дополнительное разведение.";
+  }
   return null;
 }
 export function makePrescription(
@@ -181,7 +213,7 @@ export function makePrescription(
       start: new Date(instant(d.start)!).toISOString(),
       ...(d.periodicity === null ? {} : { periodicity: d.periodicity }),
     },
-    ...(d.type === "MEDICATION"
+    ...(["MEDICATION", "SOLUTION"].includes(d.type)
       ? { specifics: structuredClone(d.specifics) }
       : {}),
     results: [],

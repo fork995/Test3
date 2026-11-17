@@ -477,7 +477,7 @@ it("groups grid categories in the confirmed order without changing assignment id
   await nav("Пациенты");
   await click(container.querySelector(".patient-card")!);
   await click(button("Сетка", container.querySelector(".view-switch")!));
-  const headings = [...container.querySelectorAll(".grid-category")].map(e => e.textContent);
+  const headings = [...container.querySelectorAll(".grid-category [role=rowheader]")].map(e => e.textContent);
   expect(headings).toEqual(["Мониторинг", "Оценка состояния", "Растворы", "Медикаменты", "Процедуры", "Уход"]);
   const rows = [...container.querySelectorAll(".name-cell")].map(e => e.getAttribute("title"));
   expect(new Set(rows).size).toBe(rows.length);

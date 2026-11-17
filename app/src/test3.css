@@ -43,3 +43,12 @@
 .test3-patient .work-open-patient{display:none}
 .test3-patient .work-patient-toggle{padding:6px 10px;min-height:44px;font-size:12px}
 .test3-dialog .result-clinical:empty{display:none}
+/* Creation stays within the mobile sheet, including the software keyboard viewport. */
+.test3-dialog.prescription-dialog {max-height:90dvh; max-width:calc(100vw - 20px); overflow-y:auto; overscroll-behavior:contain;}
+.prescription-dialog form, .prescription-dialog fieldset, .prescription-dialog label {min-width:0;}
+.prescription-dialog input, .prescription-dialog select, .prescription-dialog textarea {max-width:100%; min-width:0; font-size:16px;}
+.prescription-dialog .sheet-actions {position:sticky; bottom:0; background:var(--warm-card); padding-bottom:max(12px,env(safe-area-inset-bottom)); z-index:2;}
+.prescription-dialog .prescription-toggle {display:flex; flex-direction:row; align-items:center; gap:12px; min-height:44px;}
+.prescription-dialog .prescription-toggle input {width:24px; height:24px;}
+.grid-category .grid-add {min-width:44px; min-height:44px; padding:0 8px; margin-left:8px; color:inherit; background:transparent; border:0;}
+.concentration-hints {display:flex; flex-wrap:wrap; gap:8px;}

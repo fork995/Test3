@@ -117,11 +117,10 @@ export function medicationCalculation(s: Obj): MedicationCalculation {
   }
   const hasPreparation = s.solvent !== undefined && s.solvent !== null;
   // A dosage already in ml is itself a volume, never divide it by mass concentration.
-  if (d.numerator === "MILLILITRE" && !hasPreparation) {
+  if (d.numerator === "MILLILITRE" && !hasPreparation && !(concentration.units.ok && concentration.units.numerator === "MILLILITRE")) {
     out.total = { value: total, unit: d.numerator, time: d.time };
     out.amount = { value: total, unit: "MILLILITRE", time: d.time };
-    if (s.supplementarySolvent !== undefined && s.supplementarySolvent !== null)
-      warn("Дополнительное разведение: итоговый объём смеси не рассчитан");
+
     return out;
   }
   if (!concentration.units.ok) {
@@ -184,8 +183,7 @@ export function medicationCalculation(s: Obj): MedicationCalculation {
     return out;
   }
   out.amount = { value: amount, unit: denominator, time: d.time };
-  if (s.supplementarySolvent !== undefined && s.supplementarySolvent !== null)
-    warn("Дополнительное разведение: итоговый объём смеси не рассчитан");
+
   return out;
 }
 export function calculatedText(q: CalculatedQuantity): string {
@@ -282,6 +280,10 @@ export function medicationFields(
       calculatedText(c.amount),
       "calculated.amount",
     );
+  }
+  if (!compact && c.amount?.unit === "MILLILITRE" && s.supplementarySolvent != null) {
+    const extra = clinicalNumeric(obj(s.supplementarySolvent).volume);
+    if (extra !== null && extra >= 0 && Number.isFinite(c.amount.value + extra)) add(c.amount.time ? "Итоговая скорость жидкости" : "Итоговый объём жидкости", calculatedText({...c.amount, value: c.amount.value + extra}), "calculated.liquid");
   }
   if (!compact && c.weightKg !== null)
     add("Масса в назначении", `${fmt(c.weightKg)} кг`, "specifics.weightKg");

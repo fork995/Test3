@@ -1,6 +1,7 @@
+import { solutionRate } from "./solution";
 import { obj, text, describe, type Chain, type Revision } from "./model";
 import { parseCleverVetUnits, formatClinicalNumber } from "./clevervetUnits";
-import { medicationFields, sourceQuantity } from "./medication";
+import { medicationFields, sourceQuantity, calculatedText } from "./medication";
 export interface ClinicalField {
   label: string;
   value: string;
@@ -31,7 +32,8 @@ export function clinicalFields(
         value: name,
         path: "specifics.solution",
       });
-    const rate = quantity(obj(s.scarce).value);
+    const total = solutionRate(s);
+    const rate = total === null ? quantity(obj(s.scarce).value) : formatClinicalNumber(total);
     if (rate)
       fields.push({
         label: "Скорость инфузии",
@@ -63,7 +65,10 @@ export function clinicalParameters(chain: Chain, revision?: Revision): string {
   if (chain.type === "MEDICATION") {
     const c = medicationFields(revision.specifics, true).calculation;
     const parts: string[] = [];
-    if (c.dosage.value !== null) parts.push(sourceQuantity(c.dosage));
+    const mode = revision.specifics.viewMode;
+    if (mode === "TOTAL_VOLUME" && c.amount) parts.push(calculatedText(c.amount));
+    else if (mode === "TOTAL_SUBSTANCE" && c.total) parts.push(calculatedText(c.total));
+    else if (c.dosage.value !== null) parts.push(sourceQuantity(c.dosage));
     if (c.route.label !== "Путь введения не указан") parts.push(c.route.label);
     return parts.join(" · ");
   }

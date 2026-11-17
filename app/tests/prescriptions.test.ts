@@ -292,6 +292,7 @@ it("GRAMME and time-dependent units are sent unchanged; no dose inference", () =
     units: { substance: "MICROGRAM", volume: "KILOGRAM", time: "MINUTE" },
   };
   s.concentration.units.substance = "GRAMME";
+  d.periodicity = 1;
   expect(draftProblem(d)).toBeNull();
   expect(makePrescription(d).specifics).toEqual(s);
 });

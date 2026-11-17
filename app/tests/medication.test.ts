@@ -192,7 +192,7 @@ it("vial reconstitution uses the confirmed original xv rule without mixing final
   expect(c.effectiveConcentration).toBe(10);
   expect(c.amount?.value).toBe(0.4);
   expect(c.reconstituted).toBe(true);
-  expect(c.warnings.join(" ")).toContain("итоговый объём смеси не рассчитан");
+  expect(c.warnings).toEqual([]);
 });
 it.each([0, -1, null])(
   "invalid reconstitution volume %s never becomes ordinary stock concentration",

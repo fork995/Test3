@@ -1,3 +1,6 @@
+import { CATEGORIES, LABELS } from "./model";
+import { nameHints, CONCENTRATION_HINTS } from "./prescriptionNames";
+import { solutionRate } from "./solution";
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "./api";
 import { obj, type Patient, type Chain } from "./model";
@@ -16,6 +19,7 @@ import {
   DOSAGE_VOLUMES,
   PRESCRIPTION_TIMES,
   PRESCRIPTION_ROUTES,
+  ROUTES_BY_VOLUME,
 } from "./prescriptionCatalog";
 import {
   PrescriptionError,
@@ -32,6 +36,7 @@ import {
 export function PrescriptionDialog({
   patient,
   chain,
+  initialType,
   action = "create",
   zone,
   service,
@@ -42,6 +47,7 @@ export function PrescriptionDialog({
 }: {
   patient: Patient;
   chain?: Chain;
+  initialType?: PrescriptionType;
   action?: "create" | PrescriptionAction;
   zone: string;
   service: PrescriptionService;
@@ -57,7 +63,9 @@ export function PrescriptionDialog({
     con = obj(s.concentration),
     cu = obj(con.units);
   const [type, setType] = useState<PrescriptionType>(
-    chain?.type === "NURSING" ? "NURSING" : "MEDICATION",
+    (CATEGORIES.includes(chain?.type as PrescriptionType)
+      ? (chain!.type as PrescriptionType)
+      : initialType) ?? "MEDICATION",
   );
   const [name, setName] = useState(chain?.name ?? ""),
     [instruction, setInstruction] = useState(last?.instruction ?? ""),
@@ -93,6 +101,20 @@ export function PrescriptionDialog({
     [weight, setWeight] = useState(
       String(s.weightKg ?? (action === "create" ? patient.weight : "")),
     );
+  const [viewMode, setViewMode] = useState(String(s.viewMode ?? "DOSAGE")),
+    [extra, setExtra] = useState(
+      String(obj(s.supplementarySolvent).volume ?? ""),
+    ),
+    [prepared, setPrepared] = useState(String(obj(s.solvent).volume ?? "")),
+    [cri, setCri] = useState(!!du.time),
+    [planned, setPlanned] = useState(last ? last.periodicity != null : true),
+    [scarceMode, setScarceMode] = useState("rate"),
+    [infusionRate, setInfusionRate] = useState(""),
+    [dehydration, setDehydration] = useState(""),
+    [fraction, setFraction] = useState(""),
+    [duration, setDuration] = useState(""),
+    [maintenance, setMaintenance] = useState(false),
+    [losses, setLosses] = useState("");
   const [busy, setBusy] = useState(false),
     [blocked, setBlocked] = useState(false),
     [error, setError] = useState(""),
@@ -121,25 +143,56 @@ export function PrescriptionDialog({
     },
     dosage: {
       value: clinicalNumeric(dv),
-      units: { substance: ds, volume: dd, ...(dt ? { time: dt } : {}) },
+      units: { substance: ds, volume: dd, ...(cri && dt ? { time: dt } : {}) },
     },
     route,
     ...(weight.trim() ? { weightKg: clinicalNumeric(weight) } : {}),
-    viewMode: s.viewMode ?? "DOSAGE",
+    viewMode,
+    supplementarySolvent: extra.trim()
+      ? { volume: clinicalNumeric(extra) }
+      : null,
+    ...(cd === "VIAL" && prepared.trim()
+      ? { solvent: { volume: clinicalNumeric(prepared) } }
+      : {}),
+  };
+  const solutionSpecifics = {
+    weightKg: clinicalNumeric(weight),
+    maintenance,
+    ...(scarceMode === "rate" && infusionRate.trim()
+      ? { scarce: { value: clinicalNumeric(infusionRate) } }
+      : {}),
+    ...(scarceMode === "dehydration"
+      ? {
+          scarce: {
+            dehydration: clinicalNumeric(dehydration),
+            initial: {
+              volumePercentage: clinicalNumeric(fraction),
+              durationHours: clinicalNumeric(duration),
+            },
+          },
+        }
+      : {}),
+    ...(losses.trim()
+      ? { continuingLosses: { ratePerWeight: clinicalNumeric(losses) } }
+      : {}),
   };
   const draft: PrescriptionDraft = {
     name,
     type,
     start: at === null ? "" : new Date(at).toISOString(),
     periodicity:
-      periodKind === "manual"
+      (type === "ACTIVITY" && !planned) || periodKind === "manual"
         ? null
         : periodKind === "once"
           ? 0
           : (clinicalNumeric(period) ?? NaN),
     color,
     instruction,
-    ...(type === "MEDICATION" ? { specifics } : {}),
+    ...(type === "MEDICATION"
+      ? { specifics }
+      : type === "SOLUTION"
+        ? { specifics: solutionSpecifics }
+        : {}),
     zone,
   };
   const minimum = last ? earliestRevisionEnd(last, zone) : null;
@@ -160,7 +213,7 @@ export function PrescriptionDialog({
         : boundaryProblem
           ? boundaryProblem
           : editing
-            ? periodKind === ""
+            ? periodKind === "" && !(type === "ACTIVITY" && !planned)
               ? "Выберите режим расписания."
               : periodKind === "periodic" &&
                   !(
@@ -350,12 +403,16 @@ export function PrescriptionDialog({
                       <select
                         aria-label="Тип назначения"
                         value={type}
-                        onChange={(e) =>
-                          setType(e.target.value as PrescriptionType)
-                        }
+                        onChange={(e) => {
+                          setType(e.target.value as PrescriptionType);
+                          setName("");
+                        }}
                       >
-                        <option value="MEDICATION">Препарат</option>
-                        <option value="NURSING">Процедура</option>
+                        {CATEGORIES.map((t) => (
+                          <option key={t} value={t}>
+                            {LABELS[t]}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   )}
@@ -365,13 +422,128 @@ export function PrescriptionDialog({
                       aria-label="Название назначения"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      list="prescription-names"
+                      autoComplete="off"
                       required
                       disabled={!!chain}
                     />
                   </label>
+                  <datalist id="prescription-names">
+                    {nameHints(type, name).map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                  {type === "ACTIVITY" && (
+                    <label className="prescription-toggle">
+                      <input
+                        type="checkbox"
+                        checked={planned}
+                        onChange={(e) => {
+                          setPlanned(e.target.checked);
+                          if (e.target.checked && !periodKind)
+                            setPeriodKind("once");
+                        }}
+                      />
+                      Планируемое
+                    </label>
+                  )}
+                  {type === "SOLUTION" && (
+                    <>
+                      {number("Масса для расчёта, кг", weight, setWeight)}
+                      {select(
+                        "Восполнение дефицита",
+                        scarceMode,
+                        setScarceMode,
+                        {
+                          none: "Не включать",
+                          rate: "Заданная скорость",
+                          dehydration: "По дегидратации",
+                        },
+                      )}
+                      {scarceMode === "rate" &&
+                        number(
+                          "Скорость восполнения, мл/ч",
+                          infusionRate,
+                          setInfusionRate,
+                          false,
+                        )}
+                      {scarceMode === "dehydration" && (
+                        <>
+                          {number(
+                            "Дегидратация, %",
+                            dehydration,
+                            setDehydration,
+                          )}
+                          {number("Доля восполнения, %", fraction, setFraction)}
+                          {number(
+                            "Длительность восполнения, ч",
+                            duration,
+                            setDuration,
+                          )}
+                        </>
+                      )}
+                      <label className="prescription-toggle">
+                        <input
+                          type="checkbox"
+                          checked={maintenance}
+                          onChange={(e) => setMaintenance(e.target.checked)}
+                        />
+                        Поддержание
+                      </label>
+                      {maintenance && (
+                        <p className="micro">
+                          Поддержание для массы более 20 кг пока недоступно:
+                          формула требует дополнительной проверки.
+                        </p>
+                      )}
+                      {number(
+                        "Продолжающиеся потери, мл/кг/ч",
+                        losses,
+                        setLosses,
+                        false,
+                      )}
+                      <output>
+                        Суммарная скорость:{" "}
+                        {solutionRate(solutionSpecifics)?.toLocaleString(
+                          "ru-RU",
+                          { maximumFractionDigits: 3 },
+                        ) ?? "—"}{" "}
+                        мл/ч
+                      </output>
+                    </>
+                  )}
                   {type === "MEDICATION" && (
                     <>
                       {number("Концентрация", cv, setCv)}
+                      {(CONCENTRATION_HINTS[name] ?? []).filter(
+                        (q) =>
+                          q.units.substance === cs &&
+                          q.units.volume === cd &&
+                          (!cv || String(q.value).includes(cv)),
+                      ).length > 0 && (
+                        <div
+                          className="concentration-hints"
+                          aria-label="Подсказки концентрации"
+                        >
+                          {(CONCENTRATION_HINTS[name] ?? [])
+                            .filter(
+                              (q) =>
+                                q.units.substance === cs &&
+                                q.units.volume === cd &&
+                                (!cv || String(q.value).includes(cv)),
+                            )
+                            .map((q) => (
+                              <button
+                                type="button"
+                                className="secondary small"
+                                key={q.value}
+                                onClick={() => setCv(String(q.value))}
+                              >
+                                {q.value}
+                              </button>
+                            ))}
+                        </div>
+                      )}
                       <div className="prescription-pair">
                         {select(
                           "Единицы концентрации",
@@ -405,14 +577,24 @@ export function PrescriptionDialog({
                         "Единицы времени",
                         dt,
                         setDt,
-                        PRESCRIPTION_TIMES,
+                        cri ? PRESCRIPTION_TIMES : {},
                         true,
                       )}
                       {select(
                         "Путь введения",
                         route,
-                        setRoute,
-                        PRESCRIPTION_ROUTES,
+                        (v) => {
+                          setRoute(v);
+                          if (v !== "INTRAVENOUS") {
+                            setCri(false);
+                            setDt("");
+                          }
+                        },
+                        Object.fromEntries(
+                          Object.entries(PRESCRIPTION_ROUTES).filter(([r]) =>
+                            ROUTES_BY_VOLUME[cd]?.includes(r),
+                          ),
+                        ),
                       )}
                       {number(
                         "Масса для расчёта, кг",
@@ -420,11 +602,57 @@ export function PrescriptionDialog({
                         setWeight,
                         dd === "KILOGRAM",
                       )}
-                      {(s.solvent || s.supplementarySolvent) && (
-                        <p className="micro">
-                          Параметры разведения сохранены из исходного
-                          назначения; здесь они не меняются.
-                        </p>
+                      {route === "INTRAVENOUS" && (
+                        <label className="prescription-toggle">
+                          <input
+                            type="checkbox"
+                            checked={cri}
+                            onChange={(e) => {
+                              setCri(e.target.checked);
+                              setDt(e.target.checked ? "MINUTE" : "");
+                              if (e.target.checked) {
+                                setPeriodKind("periodic");
+                                setPeriod("1");
+                              }
+                            }}
+                          />
+                          ИПС
+                        </label>
+                      )}
+                      {cd === "VIAL" &&
+                        number(
+                          "Объём восстановления, мл",
+                          prepared,
+                          setPrepared,
+                        )}
+                      {select("Режим отображения", viewMode, setViewMode, {
+                        DOSAGE: "Доза",
+                        TOTAL_SUBSTANCE: "Общая доза ЛС",
+                        ...(calc?.amount
+                          ? { TOTAL_VOLUME: "Общий объём ЛС" }
+                          : {}),
+                      })}
+                      {["MILLILITRE", "VIAL"].includes(cd) &&
+                        number(
+                          cri
+                            ? `Дополнительное разведение, мл/${PRESCRIPTION_TIMES[dt as keyof typeof PRESCRIPTION_TIMES] ?? "—"}`
+                            : "Дополнительное разведение, мл",
+                          extra,
+                          setExtra,
+                          false,
+                        )}
+                      {calc?.amount?.unit === "MILLILITRE" && (
+                        <output>
+                          {cri
+                            ? "Итоговая скорость введения жидкости"
+                            : "Итоговый объём жидкости"}
+                          :{" "}
+                          {calculatedText({
+                            ...calc.amount,
+                            value:
+                              calc.amount.value + (clinicalNumeric(extra) ?? 0),
+                          })}
+                        </output>
                       )}
                       {calc && (calc.total || calc.amount) && (
                         <p className="prescription-calculation">
@@ -472,21 +700,24 @@ export function PrescriptionDialog({
               )}
               {editing && (
                 <>
-                  <label>
-                    Расписание
-                    <select
-                      aria-label="Расписание"
-                      value={periodKind}
-                      onChange={(e) => setPeriodKind(e.target.value)}
-                      required
-                    >
-                      <option value="">Выберите</option>
-                      <option value="manual">По необходимости</option>
-                      <option value="once">Однократно</option>
-                      <option value="periodic">Каждые N часов</option>
-                    </select>
-                  </label>
+                  {!(type === "ACTIVITY" && !planned) && (
+                    <label>
+                      Расписание
+                      <select
+                        aria-label="Расписание"
+                        value={periodKind}
+                        onChange={(e) => setPeriodKind(e.target.value)}
+                        required
+                      >
+                        <option value="">Выберите</option>
+                        <option value="manual">По необходимости</option>
+                        <option value="once">Однократно</option>
+                        <option value="periodic">Каждые N часов</option>
+                      </select>
+                    </label>
+                  )}
                   {periodKind === "periodic" &&
+                    !(type === "ACTIVITY" && !planned) &&
                     number("Интервал, часов", period, setPeriod)}
                   {select(
                     "Цвет назначения",

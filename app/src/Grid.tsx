@@ -183,8 +183,12 @@ export function Grid({
   zone,
   now,
   onSelect,
+  onCreate,
+  category,
 }: {
   indexes: IndexedChain[];
+  onCreate?: (type: import("./model").Category) => void;
+  category?: string;
   patientName?: string;
   start: number;
   end: number;
@@ -270,18 +274,18 @@ export function Grid({
       ["NURSING", "Уход"],
     ] as const;
     const known = new Set<string>(groups.map(([type]) => type));
-    const rows: ({ kind: "heading"; label: string; top: number } | { kind: "item"; index: IndexedChain; top: number; height: number })[] = [];
+    const rows: ({ kind: "heading"; label: string; type?: import("./model").Category; top: number } | { kind: "item"; index: IndexedChain; top: number; height: number })[] = [];
     let top = 0;
-    const add = (label: string, items: IndexedChain[]) => {
-      if (!items.length) return;
-      rows.push({ kind: "heading", label, top }); top += 28;
+    const add = (label: string, items: IndexedChain[], type?: import("./model").Category) => {
+      if (!items.length && !(onCreate && type && (!category || category === "ALL" || category === type))) return;
+      rows.push({ kind: "heading", label, type, top }); top += onCreate && type ? 44 : 28;
       for (const index of items) { const height = Math.max(ROW, Math.ceil(index.chain.name.length / 14) * 17 + (["MEDICATION", "SOLUTION"].includes(index.chain.type) ? 36 : 0) + 24);
         rows.push({ kind: "item", index, top, height }); top += height; }
     };
-    groups.forEach(([type, label]) => add(label, indexes.filter((index) => index.chain.type === type)));
+    groups.forEach(([type, label]) => add(label, indexes.filter((index) => index.chain.type === type), type));
     add("Без категории", indexes.filter((index) => !known.has(index.chain.type)));
     return { rows, height: top };
-  }, [indexes]);
+  }, [indexes, onCreate, category]);
   const visibleRow = grouped.rows.findIndex((_r, i) => (grouped.rows[i + 1]?.top ?? grouped.height) > viewport.row);
   const first = Math.max(0, (visibleRow < 0 ? grouped.rows.length - 1 : visibleRow) - 3);
   const last = Math.min(grouped.rows.length, first + viewport.count + 12);
@@ -349,7 +353,7 @@ export function Grid({
         </div>
         <div className="grid-body" style={{ height: grouped.height }}>
           {grouped.rows.slice(first, last).map((row, i) => row.kind === "heading" ? (
-            <div key={`group:${row.label}`} role="row" aria-rowindex={first + i + 2} className="grid-category" style={{ top: row.top }}><span role="rowheader">{row.label}</span></div>
+            <div key={`group:${row.label}`} role="row" aria-rowindex={first + i + 2} className="grid-category" style={{ top: row.top, height: row.type && onCreate ? 44 : 28 }}><span role="rowheader">{row.label}</span>{row.type && onCreate && <button className="grid-add" type="button" aria-label={`Добавить: ${row.label}`} onClick={() => onCreate(row.type!)}>+</button>}</div>
           ) : (
             <GridRow key={row.index.chain.id} index={row.index} position={row.top} height={row.height} rowNumber={first + i} ticks={ticks} end={end} zone={zone} now={now} onSelect={onSelect} fromColumn={fromColumn} toColumn={toColumn} />
           ))}

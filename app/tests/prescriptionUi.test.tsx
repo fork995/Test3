@@ -170,6 +170,7 @@ it("medication form uses shared calculation and sends raw dose, units and route 
 it("edit requires confirmation, preserves unknown preparation fields, does not rename chain", async () => {
   const f = setup();
   f.chain.elements[0].specifics.solvent = { volume: 5 };
+  (f.chain.elements[0].specifics.concentration as any).units.volume = "VIAL";
   await render(f, "revise");
   await input("Концентрация", "50");
   await click(button("Продолжить"));
@@ -263,4 +264,44 @@ it("App: create procedure, verify GET, refresh grid and delete chain with separa
       e.textContent?.includes("ДЕМО · Новая процедура"),
     ),
   ).toBe(false);
+});
+for (const type of ['MONITORING','ACTIVITY','SOLUTION','MEDICATION','PROCEDURE','NURSING'] as const) it(`opens category ${type} directly and offers its dictionary`, async()=>{
+ const f=setup();
+ await act(async()=>root.render(<PrescriptionDialog patient={f.patient} initialType={type} zone="Europe/Moscow" service={f.service} onClose={f.close} onSaved={f.saved} onSnapshot={f.snapshot} onExpire={()=>{}}/>));
+ expect((box.querySelector('[aria-label="Тип назначения"]') as HTMLSelectElement).value).toBe(type);
+ expect(box.querySelectorAll('#prescription-names option').length).toBeGreaterThan(0);
+ if(type==='SOLUTION') {
+  await input('Название назначения','ДЕМО раствор');await input('Скорость восполнения, мл/ч','10');await input('Расписание','once');
+  await click(button('Создать назначение'));expect(f.create).toHaveBeenCalledOnce();expect((f.create.mock.calls as any)[0][1].specifics.scarce).toEqual({value:10});
+ }
+});
+it('ACTIVITY unplanned omits periodicity and can save without schedule selection',async()=>{
+ const f=setup();await render(f);await input('Тип назначения','ACTIVITY');await input('Название назначения','ДЕМО активность');
+ await click(box.querySelector('.prescription-toggle input')!);
+ await click(button('Создать назначение'));expect((f.create.mock.calls as any)[0][1].periodicity).toBeNull();
+});
+it('CRI switches the data model, hourly schedule and dilution rate; switches back without time dimension',async()=>{
+ const f=setup();await render(f);
+ await input('Название назначения','ДЕМО лекарство');await input('Концентрация','10');await input('Единицы концентрации','MILLIGRAM');await input('На единицу препарата','MILLILITRE');await input('Дозировка','1');await input('Единицы дозировки','MILLIGRAM');await input('На единицу массы / животное','KILOGRAM');await input('Путь введения','INTRAVENOUS');
+ await click(box.querySelector('.prescription-toggle input')!);
+ await input('Дополнительное разведение, мл/мин','2');await input('Режим отображения','TOTAL_VOLUME');
+ expect(box.textContent).toContain('2,4 мл/мин');await click(button('Создать назначение'));
+ const d=(f.create.mock.calls as any)[0][1];expect(d.periodicity).toBe(1);expect(d.specifics.dosage.units.time).toBe('MINUTE');expect(d.specifics.supplementarySolvent).toEqual({volume:2});expect(d.specifics.viewMode).toBe('TOTAL_VOLUME');
+ await click(box.querySelector('.prescription-toggle input')!);expect(box.textContent).toContain('2,4 мл');expect(box.textContent).not.toContain('2,4 мл/мин');
+});
+for (const type of ['MONITORING','ACTIVITY','SOLUTION','MEDICATION','PROCEDURE','NURSING'] as const) it(`App: ${type} refreshes individual and general feeds without another POST`,async()=>{
+ const server=prescriptionServer();vi.stubGlobal('fetch',server.fetcher);await act(async()=>root.render(<App/>));
+ (box.querySelector('#jwt') as HTMLInputElement).value='SYNTHETIC_NOT_A_JWT';await act(async()=>{box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+ await click(button('Пациенты',box.querySelector('.bottom-nav')!));await click(box.querySelector('.patient-card')!);await click(button('+ Назначение'));
+ await input('Тип назначения',type);await input('Название назначения','ДЕМО новое '+type);await input('Расписание','once');
+ if(type==='SOLUTION')await input('Скорость восполнения, мл/ч','10');
+ if(type==='MEDICATION'){
+  await input('Концентрация','10');await input('Единицы концентрации','MILLIGRAM');await input('На единицу препарата','MILLILITRE');await input('Дозировка','1');await input('Единицы дозировки','MILLIGRAM');await input('На единицу массы / животное','KILOGRAM');await input('Путь введения','INTRAVENOUS');
+ }
+ await click(button('Создать назначение'));expect(box.querySelector('.prescription-dialog')).toBeNull();
+ expect(box.querySelector('.individual-workspace')?.textContent).toContain('ДЕМО новое '+type);
+ await click(button('Общая лента',box.querySelector('.bottom-nav')!));
+ const toggle=box.querySelector('.current-block .compact-feed-patient-toggle')!;expect(toggle).toBeTruthy();await click(toggle);
+ expect(box.querySelector('.current-block')?.textContent).toContain('ДЕМО новое '+type);
+ expect(server.calls.filter(c=>c.method==='POST')).toHaveLength(1);
 });
