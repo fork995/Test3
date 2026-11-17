@@ -1,5 +1,7 @@
 # Создание назначений Test3
 
+Уточнение и доработка поведения подсказок: [PRESCRIPTION_HINTS_AUDIT.md](PRESCRIPTION_HINTS_AUDIT.md).
+
 Рабочая ветка: `fork995/Test3:test3`. Публикация: https://fork995.github.io/Test3/ . Test2 не изменялся; workflow публикации не изменён.
 
 ## Поддержка и формы

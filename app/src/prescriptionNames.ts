@@ -1646,3 +1646,27 @@ export function nameHints(type: Category, query: string) {
     n.toLowerCase().includes(query.toLowerCase()),
   );
 }
+
+/** Original _A uses OU.get(name): no fuzzy drug-to-concentration association. */
+export function concentrationHints(
+  name: string,
+  substance: string,
+  volume: string,
+  input: string,
+) {
+  const numeric = Number(input.replace(",", "."));
+  const query =
+    input.trim() && Number.isFinite(numeric) ? String(numeric) : input;
+  return [
+    ...new Set(
+      (CONCENTRATION_HINTS[name] ?? [])
+        .filter(
+          (q) =>
+            q.units.substance === substance &&
+            q.units.volume === volume &&
+            (!input || numeric === 0 || String(q.value).includes(query)),
+        )
+        .map((q) => String(q.value)),
+    ),
+  ];
+}

@@ -1,5 +1,11 @@
+import { CONTINUING_LOSSES_REFERENCE } from "./solutionReferences";
+import { PrescriptionAutocomplete } from "./PrescriptionAutocomplete";
 import { CATEGORIES, LABELS } from "./model";
-import { nameHints, CONCENTRATION_HINTS } from "./prescriptionNames";
+import {
+  nameHints,
+  concentrationHints,
+  CONCENTRATION_HINTS as CONCENTRATION_HINTS_FOR_NOTICE,
+} from "./prescriptionNames";
 import { solutionRate } from "./solution";
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "./api";
@@ -15,11 +21,12 @@ import { RESULT_COLORS } from "./resultColors";
 import {
   CONCENTRATION_SUBSTANCES,
   CONCENTRATION_VOLUMES,
-  DOSAGE_SUBSTANCES,
   DOSAGE_VOLUMES,
   PRESCRIPTION_TIMES,
   PRESCRIPTION_ROUTES,
   ROUTES_BY_VOLUME,
+  SOLVENT_NAMES,
+  dosageSubstances,
 } from "./prescriptionCatalog";
 import {
   PrescriptionError,
@@ -91,15 +98,21 @@ export function PrescriptionDialog({
     return `${dayKey(n, zone)}T${formatTime(n, zone)}`;
   });
   const [dv, setDv] = useState(String(dose.value ?? "")),
-    [ds, setDs] = useState(String(du.substance ?? "")),
-    [dd, setDd] = useState(String(du.volume ?? "")),
+    [ds, setDs] = useState(String(du.substance ?? "MILLIGRAM")),
+    [dd, setDd] = useState(String(du.volume ?? "KILOGRAM")),
     [dt, setDt] = useState(String(du.time ?? ""));
   const [cv, setCv] = useState(String(con.value ?? "")),
-    [cs, setCs] = useState(String(cu.substance ?? "")),
-    [cd, setCd] = useState(String(cu.volume ?? "")),
+    [cs, setCs] = useState(String(cu.substance ?? "MILLIGRAM")),
+    [cd, setCd] = useState(String(cu.volume ?? "MILLILITRE")),
     [route, setRoute] = useState(String(s.route ?? "")),
     [weight, setWeight] = useState(
       String(s.weightKg ?? (action === "create" ? patient.weight : "")),
+    );
+  const [solventName, setSolventName] = useState(
+      String(obj(s.solvent).name ?? SOLVENT_NAMES[1]),
+    ),
+    [extraName, setExtraName] = useState(
+      String(obj(s.supplementarySolvent).name ?? SOLVENT_NAMES[1]),
     );
   const [viewMode, setViewMode] = useState(String(s.viewMode ?? "DOSAGE")),
     [extra, setExtra] = useState(
@@ -111,10 +124,22 @@ export function PrescriptionDialog({
     [scarceMode, setScarceMode] = useState("rate"),
     [infusionRate, setInfusionRate] = useState(""),
     [dehydration, setDehydration] = useState(""),
-    [fraction, setFraction] = useState(""),
+    [fraction, setFraction] = useState("50"),
     [duration, setDuration] = useState(""),
     [maintenance, setMaintenance] = useState(false),
     [losses, setLosses] = useState("");
+  useEffect(() => {
+    if (!clinicalNumeric(dv)) setDs(cs);
+    else if (ds && !Object.hasOwn(dosageSubstances(route, cs), ds)) setDs("");
+  }, [cs, route, dv, ds]);
+  useEffect(() => {
+    if (route && !ROUTES_BY_VOLUME[cd]?.includes(route)) {
+      setRoute("");
+      setCri(false);
+      setDt("");
+    }
+  }, [cd, route]);
+  const previousSchedule = useRef({ kind: periodKind, period });
   const [busy, setBusy] = useState(false),
     [blocked, setBlocked] = useState(false),
     [error, setError] = useState(""),
@@ -149,10 +174,10 @@ export function PrescriptionDialog({
     ...(weight.trim() ? { weightKg: clinicalNumeric(weight) } : {}),
     viewMode,
     supplementarySolvent: extra.trim()
-      ? { volume: clinicalNumeric(extra) }
+      ? { name: extraName, volume: clinicalNumeric(extra) }
       : null,
     ...(cd === "VIAL" && prepared.trim()
-      ? { solvent: { volume: clinicalNumeric(prepared) } }
+      ? { solvent: { name: solventName, volume: clinicalNumeric(prepared) } }
       : {}),
   };
   const solutionSpecifics = {
@@ -406,6 +431,17 @@ export function PrescriptionDialog({
                         onChange={(e) => {
                           setType(e.target.value as PrescriptionType);
                           setName("");
+                          setCv("");
+                          setCs("MILLIGRAM");
+                          setCd("MILLILITRE");
+                          setDv("");
+                          setDs("MILLIGRAM");
+                          setDd("KILOGRAM");
+                          setRoute("");
+                          setCri(false);
+                          setDt("");
+                          setExtra("");
+                          setPrepared("");
                         }}
                       >
                         {CATEGORIES.map((t) => (
@@ -416,23 +452,13 @@ export function PrescriptionDialog({
                       </select>
                     </label>
                   )}
-                  <label>
-                    Название
-                    <input
-                      aria-label="Название назначения"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      list="prescription-names"
-                      autoComplete="off"
-                      required
-                      disabled={!!chain}
-                    />
-                  </label>
-                  <datalist id="prescription-names">
-                    {nameHints(type, name).map((n) => (
-                      <option key={n} value={n} />
-                    ))}
-                  </datalist>
+                  <PrescriptionAutocomplete
+                    label="Название назначения"
+                    value={name}
+                    onChange={setName}
+                    options={nameHints(type, name)}
+                    disabled={!!chain || busy || blocked}
+                  />
                   {type === "ACTIVITY" && (
                     <label className="prescription-toggle">
                       <input
@@ -469,6 +495,11 @@ export function PrescriptionDialog({
                         )}
                       {scarceMode === "dehydration" && (
                         <>
+                          <p className="micro">
+                            Суточный объём: дегидратация (%) × масса (кг) × 8.
+                            Доля восполнения по умолчанию — 50%, как в
+                            оригинале.
+                          </p>
                           {number(
                             "Дегидратация, %",
                             dehydration,
@@ -502,6 +533,31 @@ export function PrescriptionDialog({
                         setLosses,
                         false,
                       )}
+                      <details className="prescription-reference">
+                        <summary>Справка: продолжающиеся потери</summary>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Состояние</th>
+                              <th>мл/кг/ч</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {CONTINUING_LOSSES_REFERENCE.map((row) => (
+                              <tr key={row.name}>
+                                <td>{row.name}</td>
+                                <td>{row.value}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </details>
+                      {maintenance && (
+                        <p className="micro">
+                          Для массы до 20 кг: суточный объём = масса (кг) × 30 +
+                          70; скорость = суточный объём / 24.
+                        </p>
+                      )}
                       <output>
                         Суммарная скорость:{" "}
                         {solutionRate(solutionSpecifics)?.toLocaleString(
@@ -514,36 +570,29 @@ export function PrescriptionDialog({
                   )}
                   {type === "MEDICATION" && (
                     <>
-                      {number("Концентрация", cv, setCv)}
-                      {(CONCENTRATION_HINTS[name] ?? []).filter(
-                        (q) =>
-                          q.units.substance === cs &&
-                          q.units.volume === cd &&
-                          (!cv || String(q.value).includes(cv)),
-                      ).length > 0 && (
-                        <div
-                          className="concentration-hints"
-                          aria-label="Подсказки концентрации"
-                        >
-                          {(CONCENTRATION_HINTS[name] ?? [])
-                            .filter(
-                              (q) =>
-                                q.units.substance === cs &&
-                                q.units.volume === cd &&
-                                (!cv || String(q.value).includes(cv)),
-                            )
-                            .map((q) => (
-                              <button
-                                type="button"
-                                className="secondary small"
-                                key={q.value}
-                                onClick={() => setCv(String(q.value))}
-                              >
-                                {q.value}
-                              </button>
-                            ))}
-                        </div>
-                      )}
+                      <PrescriptionAutocomplete
+                        label="Концентрация"
+                        disabled={busy || blocked}
+                        value={cv}
+                        onChange={setCv}
+                        options={concentrationHints(name, cs, cd, cv)}
+                        inputMode="decimal"
+                      />
+                      <p className="micro">
+                        Подсказки отфильтрованы по выбранным единицам и
+                        введённому числу. Очистите число, чтобы увидеть все
+                        значения для этих единиц.
+                      </p>
+                      {name &&
+                        !Object.hasOwn(
+                          CONCENTRATION_HINTS_FOR_NOTICE,
+                          name,
+                        ) && (
+                          <p className="micro">
+                            Для подсказок концентрации выберите точное название
+                            из списка, если оно есть. Ручной ввод доступен.
+                          </p>
+                        )}
                       <div className="prescription-pair">
                         {select(
                           "Единицы концентрации",
@@ -564,7 +613,7 @@ export function PrescriptionDialog({
                           "Единицы дозировки",
                           ds,
                           setDs,
-                          DOSAGE_SUBSTANCES,
+                          dosageSubstances(route, cs),
                         )}
                         {select(
                           "На единицу массы / животное",
@@ -608,6 +657,15 @@ export function PrescriptionDialog({
                             type="checkbox"
                             checked={cri}
                             onChange={(e) => {
+                              if (e.target.checked)
+                                previousSchedule.current = {
+                                  kind: periodKind,
+                                  period,
+                                };
+                              else {
+                                setPeriodKind(previousSchedule.current.kind);
+                                setPeriod(previousSchedule.current.period);
+                              }
                               setCri(e.target.checked);
                               setDt(e.target.checked ? "MINUTE" : "");
                               if (e.target.checked) {
@@ -619,12 +677,23 @@ export function PrescriptionDialog({
                           ИПС
                         </label>
                       )}
-                      {cd === "VIAL" &&
-                        number(
-                          "Объём восстановления, мл",
-                          prepared,
-                          setPrepared,
-                        )}
+                      {cd === "VIAL" && (
+                        <>
+                          {select(
+                            "Растворитель восстановления",
+                            solventName,
+                            setSolventName,
+                            Object.fromEntries(
+                              SOLVENT_NAMES.map((n) => [n, n]),
+                            ),
+                          )}
+                          {number(
+                            "Объём восстановления, мл",
+                            prepared,
+                            setPrepared,
+                          )}
+                        </>
+                      )}
                       {select("Режим отображения", viewMode, setViewMode, {
                         DOSAGE: "Доза",
                         TOTAL_SUBSTANCE: "Общая доза ЛС",
@@ -632,15 +701,26 @@ export function PrescriptionDialog({
                           ? { TOTAL_VOLUME: "Общий объём ЛС" }
                           : {}),
                       })}
-                      {["MILLILITRE", "VIAL"].includes(cd) &&
-                        number(
-                          cri
-                            ? `Дополнительное разведение, мл/${PRESCRIPTION_TIMES[dt as keyof typeof PRESCRIPTION_TIMES] ?? "—"}`
-                            : "Дополнительное разведение, мл",
-                          extra,
-                          setExtra,
-                          false,
-                        )}
+                      {["MILLILITRE", "VIAL"].includes(cd) && (
+                        <>
+                          {select(
+                            "Растворитель дополнительного разведения",
+                            extraName,
+                            setExtraName,
+                            Object.fromEntries(
+                              SOLVENT_NAMES.map((n) => [n, n]),
+                            ),
+                          )}
+                          {number(
+                            cri
+                              ? `Дополнительное разведение, мл/${PRESCRIPTION_TIMES[dt as keyof typeof PRESCRIPTION_TIMES] ?? "—"}`
+                              : "Дополнительное разведение, мл",
+                            extra,
+                            setExtra,
+                            false,
+                          )}
+                        </>
+                      )}
                       {calc?.amount?.unit === "MILLILITRE" && (
                         <output>
                           {cri

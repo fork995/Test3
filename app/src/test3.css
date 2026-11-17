@@ -51,4 +51,14 @@
 .prescription-dialog .prescription-toggle {display:flex; flex-direction:row; align-items:center; gap:12px; min-height:44px;}
 .prescription-dialog .prescription-toggle input {width:24px; height:24px;}
 .grid-category .grid-add {min-width:44px; min-height:44px; padding:0 8px; margin-left:8px; color:inherit; background:transparent; border:0;}
-.concentration-hints {display:flex; flex-wrap:wrap; gap:8px;}
+
+
+.prescription-autocomplete {min-width:0;}
+.prescription-options {position:fixed; z-index:100; box-sizing:border-box; margin:0; padding:0; list-style:none; overflow-y:auto; overscroll-behavior:contain; touch-action:pan-y; border:1px solid var(--warm-border); border-radius:10px; background:var(--warm-card); color:var(--warm-text); box-shadow:0 8px 24px #0008;}
+.prescription-options [role=option] {box-sizing:border-box; display:flex; align-items:center; min-height:44px; padding:10px 12px; cursor:pointer; overflow-wrap:anywhere;}
+.prescription-options [aria-selected=true] {background:var(--warm-hover,#624b39); outline:2px solid var(--accent); outline-offset:-2px;}
+.prescription-options [role=option]:hover {background:var(--warm-hover,#624b39);}
+
+.prescription-reference summary {cursor:pointer; min-height:44px; padding:12px 0;}
+.prescription-reference table {width:100%; border-collapse:collapse; font-size:14px;}
+.prescription-reference th, .prescription-reference td {text-align:left; padding:8px; border-bottom:1px solid var(--warm-border); overflow-wrap:anywhere;}

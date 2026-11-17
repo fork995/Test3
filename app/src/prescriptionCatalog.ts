@@ -53,3 +53,26 @@ export const ROUTES_BY_VOLUME: Record<string, readonly string[]> = {
   GRAMME: ["ORAL"],
   DOSE: ["INHALATIONAL", "SUBCUTANEOUS"],
 };
+
+/** Original yA: selected independently of the drug; no automatic dose defaults. */
+export const SOLVENT_NAMES = [
+  "Вода",
+  "Натрия хлорид - 0,9%",
+  "Раствор Рингера",
+  "Специальный",
+] as const;
+export function dosageSubstances(
+  route: string,
+  concentrationSubstance: string,
+): Record<string, string> {
+  if (!["INTRAVENOUS", "SUBCUTANEOUS", "INTRAMUSCULAR"].includes(route))
+    return DOSAGE_SUBSTANCES;
+  const mass = ["MICROGRAM", "MILLIGRAM", "GRAMME"];
+  return Object.fromEntries(
+    Object.entries(DOSAGE_SUBSTANCES).filter(([key]) =>
+      mass.includes(concentrationSubstance)
+        ? mass.includes(key)
+        : key === concentrationSubstance,
+    ),
+  );
+}

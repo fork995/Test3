@@ -13,6 +13,7 @@ import { prescriptionServer, P_NOW } from "./prescriptionFixtures";
 let root: Root, box: HTMLDivElement;
 beforeEach(() => {
   localStorage.clear();
+  vi.spyOn(HTMLInputElement.prototype, "getBoundingClientRect").mockReturnValue({left:10,right:310,top:100,bottom:144,width:300,height:44,x:10,y:100,toJSON:()=>({})});
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(P_NOW);
@@ -180,7 +181,7 @@ it("edit requires confirmation, preserves unknown preparation fields, does not r
   expect(f.revise).toHaveBeenCalledOnce();
   const d = (f.revise.mock.calls as any)[0][2];
   expect(d.name).toBe(f.chain.name);
-  expect(d.specifics.solvent).toEqual({ volume: 5 });
+  expect(d.specifics.solvent).toEqual({ name: "Натрия хлорид - 0,9%", volume: 5 });
   expect(d.specifics.dosage).toEqual(f.chain.elements[0].specifics.dosage);
 });
 it("delete confirmation can be cancelled with zero requests", async () => {
@@ -269,7 +270,8 @@ for (const type of ['MONITORING','ACTIVITY','SOLUTION','MEDICATION','PROCEDURE',
  const f=setup();
  await act(async()=>root.render(<PrescriptionDialog patient={f.patient} initialType={type} zone="Europe/Moscow" service={f.service} onClose={f.close} onSaved={f.saved} onSnapshot={f.snapshot} onExpire={()=>{}}/>));
  expect((box.querySelector('[aria-label="Тип назначения"]') as HTMLSelectElement).value).toBe(type);
- expect(box.querySelectorAll('#prescription-names option').length).toBeGreaterThan(0);
+ await act(async()=>{(box.querySelector('[aria-label="Название назначения"]') as HTMLInputElement).focus();});
+ expect(box.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
  if(type==='SOLUTION') {
   await input('Название назначения','ДЕМО раствор');await input('Скорость восполнения, мл/ч','10');await input('Расписание','once');
   await click(button('Создать назначение'));expect(f.create).toHaveBeenCalledOnce();expect((f.create.mock.calls as any)[0][1].specifics.scarce).toEqual({value:10});
@@ -286,7 +288,7 @@ it('CRI switches the data model, hourly schedule and dilution rate; switches bac
  await click(box.querySelector('.prescription-toggle input')!);
  await input('Дополнительное разведение, мл/мин','2');await input('Режим отображения','TOTAL_VOLUME');
  expect(box.textContent).toContain('2,4 мл/мин');await click(button('Создать назначение'));
- const d=(f.create.mock.calls as any)[0][1];expect(d.periodicity).toBe(1);expect(d.specifics.dosage.units.time).toBe('MINUTE');expect(d.specifics.supplementarySolvent).toEqual({volume:2});expect(d.specifics.viewMode).toBe('TOTAL_VOLUME');
+ const d=(f.create.mock.calls as any)[0][1];expect(d.periodicity).toBe(1);expect(d.specifics.dosage.units.time).toBe('MINUTE');expect(d.specifics.supplementarySolvent).toEqual({name:"Натрия хлорид - 0,9%",volume:2});expect(d.specifics.viewMode).toBe('TOTAL_VOLUME');
  await click(box.querySelector('.prescription-toggle input')!);expect(box.textContent).toContain('2,4 мл');expect(box.textContent).not.toContain('2,4 мл/мин');
 });
 for (const type of ['MONITORING','ACTIVITY','SOLUTION','MEDICATION','PROCEDURE','NURSING'] as const) it(`App: ${type} refreshes individual and general feeds without another POST`,async()=>{
@@ -304,4 +306,34 @@ for (const type of ['MONITORING','ACTIVITY','SOLUTION','MEDICATION','PROCEDURE',
  const toggle=box.querySelector('.current-block .compact-feed-patient-toggle')!;expect(toggle).toBeTruthy();await click(toggle);
  expect(box.querySelector('.current-block')?.textContent).toContain('ДЕМО новое '+type);
  expect(server.calls.filter(c=>c.method==='POST')).toHaveLength(1);
+});
+async function focus(label:string){await act(async()=>{(box.querySelector(`[aria-label="${label}"]`) as HTMLInputElement).focus();});}
+it('Lidocaine concentration dropdown selects one value, preserves units and closes on blur',async()=>{
+ const f=setup();await render(f);await input('Название назначения','лидо');await focus('Название назначения');
+ expect(box.querySelector('[role=option]')?.textContent).toBe('Лидокаин');await click(box.querySelector('[role=option]')!);
+ await focus('Концентрация');expect([...box.querySelectorAll('[role=option]')].map(e=>e.textContent)).toEqual(['20','100']);
+ await click([...box.querySelectorAll('[role=option]')][1]);expect((box.querySelector('[aria-label="Концентрация"]') as HTMLInputElement).value).toBe('100');expect(box.querySelector('[role=listbox]')).toBeNull();
+ await input('Путь введения','INTRAVENOUS');await input('Дозировка','1');await input('Расписание','once');await click(button('Создать назначение'));
+ expect((f.create.mock.calls as any)[0][1].specifics.concentration).toEqual({value:100,units:{substance:'MILLIGRAM',volume:'MILLILITRE'}});
+ await input('Название назначения','Ципрофлоксацин');await focus('Концентрация');expect(box.querySelector('[role=listbox]')).toBeNull();
+ await input('Концентрация','');expect([...box.querySelectorAll('[role=option]')].map(e=>e.textContent)).toEqual(['2','10','3']);
+ await focus('Название назначения');expect(box.querySelector('[aria-label="Подсказки: Концентрация"]')).toBeNull();
+});
+it('changing drug, units and category updates hints; manual concentration stays manual',async()=>{
+ const f=setup();await render(f);await input('Название назначения','Марфлоксин');await input('На единицу препарата','TABLET');await focus('Концентрация');
+ expect([...box.querySelectorAll('[role=option]')].map(e=>e.textContent)).toEqual(['5','20','80']);
+ await input('На единицу препарата','MILLILITRE');expect([...box.querySelectorAll('[role=option]')].map(e=>e.textContent)).toEqual(['20','100']);
+ await input('Название назначения','Ципрофлоксацин');await focus('Концентрация');expect([...box.querySelectorAll('[role=option]')].map(e=>e.textContent)).toEqual(['2','10','3']);
+ await input('Концентрация','77');expect(box.querySelector('[role=listbox]')).toBeNull();
+ await input('Название назначения','ДЕМО ручное');await input('Путь введения','INTRAVENOUS');await input('Дозировка','1');await input('Расписание','once');await click(button('Создать назначение'));expect((f.create.mock.calls as any)[0][1].specifics.concentration.value).toBe(77);
+ await input('Тип назначения','SOLUTION');expect(box.querySelector('[aria-label="Концентрация"]')).toBeNull();await focus('Название назначения');expect(box.querySelectorAll('[role=option]').length).toBe(7);
+});
+it('dependency options clear an invalid route and follow substance without filling a dose',async()=>{
+ const f=setup();await render(f);await input('Путь введения','INTRAVENOUS');await input('Единицы концентрации','INTERNATIONAL_UNIT');
+ expect((box.querySelector('[aria-label="Единицы дозировки"]') as HTMLSelectElement).value).toBe('INTERNATIONAL_UNIT');expect((box.querySelector('[aria-label="Дозировка"]') as HTMLInputElement).value).toBe('');
+ await input('На единицу препарата','TABLET');expect((box.querySelector('[aria-label="Путь введения"]') as HTMLSelectElement).value).toBe('');
+});
+it('solvent dictionary selection is serialized with volume and respects independent dilution choice',async()=>{
+ const f=setup();await render(f);await input('Название назначения','ДЕМО');await input('На единицу препарата','VIAL');await input('Концентрация','100');await input('Объём восстановления, мл','5');await input('Растворитель восстановления','Вода');await input('Дозировка','1');await input('Путь введения','INTRAVENOUS');await input('Дополнительное разведение, мл','2');await input('Растворитель дополнительного разведения','Раствор Рингера');await input('Расписание','once');await click(button('Создать назначение'));
+ const s=(f.create.mock.calls as any)[0][1].specifics;expect(s.solvent).toEqual({name:'Вода',volume:5});expect(s.supplementarySolvent).toEqual({name:'Раствор Рингера',volume:2});
 });
