@@ -1,9 +1,9 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { StorageCredentials } from "./auth.js";
 
-export function createPhotoStorage(bucket: string, credentials: StorageCredentials) {
+export function createPhotoStorage(bucket: string, credentials: StorageCredentials, clientOverride?: Pick<S3Client, "send" | "destroy">) {
   if (bucket !== "clevervet-patient-photos") throw Error("Unexpected photo bucket");
-  const client = new S3Client({
+  const client = clientOverride ?? new S3Client({
     region: "ru-central1", endpoint: "https://storage.yandexcloud.net",
     forcePathStyle: true, credentials, maxAttempts: 1,
   });

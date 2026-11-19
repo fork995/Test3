@@ -74,11 +74,16 @@ it("only allowlisted preferences and the minimal auth session can use persistent
           "transferApi.ts",
           "entityApi.ts",
           "prescriptionApi.ts",
+          "photoBackend.ts",
         ].includes(f),
     )
     .map((f) => readFileSync(join(root, "src", f), "utf8"))
     .join("\n");
   expect(/"PATCH"|"POST"/.test(withoutDischarge)).toBe(false);
+  const photoBackend = readFileSync(join(root, "src/photoBackend.ts"), "utf8");
+  expect(photoBackend).toContain('method: "POST"');
+  expect(photoBackend).toContain('/api/mock/patients/');
+  expect(photoBackend).not.toMatch(/localStorage|sessionStorage|document\.cookie|storage\.yandexcloud\.net/);
   const prescriptions = readFileSync(
     join(root, "src/prescriptionApi.ts"),
     "utf8",
@@ -97,7 +102,7 @@ it("only allowlisted preferences and the minimal auth session can use persistent
     /"(?:POST|PUT|PATCH|DELETE)"|response\.(?:json|text)\(/,
   );
   expect(archive).toContain("/archive/medical-records");
-  expect(source.match(/fetchImpl\(/g)).toHaveLength(7);
+  expect(source.match(/fetchImpl\(/g)).toHaveLength(8);
   const authImport = readFileSync(join(root, "src/authImport.ts"), "utf8");
   const stayAuth = readFileSync(join(root, "src/stayAuth.ts"), "utf8");
   const stayUserscript = readFileSync(

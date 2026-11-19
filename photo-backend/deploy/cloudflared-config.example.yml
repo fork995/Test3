@@ -1,0 +1,12 @@
+# Copy outside Git after adding a Cloudflare domain and creating a named Tunnel.
+# Never publish admin (8788), VNC (5900), noVNC (6080), SSH or VPN routes.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /home/clevervet/.cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+ingress:
+  - hostname: api.example.invalid
+    path: ^/health$
+    service: http://127.0.0.1:8787
+  - hostname: api.example.invalid
+    path: ^/api/patients/[A-Za-z0-9_-]+/photo$
+    service: http://127.0.0.1:8787
+  - service: http_status:404

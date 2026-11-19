@@ -1,5 +1,5 @@
 export const PHOTO_UPLOAD_UNAVAILABLE =
-  "Сохранение фотографии пока недоступно: Object Storage не разрешает загрузку с GitHub Pages (CORS 403), а текущая сессия не предоставляет разрешённые S3-учётные данные.";
+  "Сохранение фотографии пока недоступно: защищённый backend ещё не подключён к Test3.";
 
 export interface PreparedPatientPhoto {
   blob: Blob;

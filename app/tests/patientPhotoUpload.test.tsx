@@ -141,7 +141,7 @@ it("previews a selected file but blocks save before any network write", async ()
   expect(container.textContent).toContain("JPEG · 1200 × 800");
   await click("Сохранить");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-    "CORS 403",
+    "backend",
   );
   expect(fetch).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();

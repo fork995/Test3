@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Patient } from "./model";
+import { patientPhotoUrl } from "./PatientPhoto";
 import {
   PHOTO_UPLOAD_UNAVAILABLE,
   preparePatientPhoto,
@@ -12,10 +13,14 @@ export function PatientPhotoDialog({
   patient,
   onClose,
   processor = preparePatientPhoto,
+  upload,
+  onSaved,
 }: {
   patient: Patient;
   onClose: () => void;
   processor?: Processor;
+  upload?: (patientId: string, jpeg: Blob) => Promise<string>;
+  onSaved?: (photo: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const previewRef = useRef<string | null>(null);
@@ -24,6 +29,7 @@ export function PatientPhotoDialog({
   const [prepared, setPrepared] = useState<PreparedPatientPhoto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [stage, setStage] = useState("");
   const hasPhoto = !!patient.photo;
 
   useEffect(() => {
@@ -62,6 +68,21 @@ export function PatientPhotoDialog({
     } finally {
       if (current === sequence.current) setBusy(false);
     }
+  }
+
+  async function save() {
+    if (!prepared || busy) return;
+    if (!upload) { setError(PHOTO_UPLOAD_UNAVAILABLE); return; }
+    setBusy(true); setError(""); setStage("Загрузка фотографии…");
+    try {
+      const photo = await upload(patient.id, prepared.blob);
+      if (!patientPhotoUrl(photo)) throw Error("Backend не подтвердил сохранение фотографии.");
+      setStage("Готово");
+      onSaved?.(photo);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось сохранить фотографию.");
+    } finally { setBusy(false); }
   }
 
   return (
@@ -122,6 +143,7 @@ export function PatientPhotoDialog({
           {error}
         </p>
       )}
+      {stage && <p className="micro" role="status">{stage}</p>}
       <div className="sheet-actions">
         <button type="button" className="quiet" disabled={busy} onClick={onClose}>
           Отмена
@@ -130,7 +152,7 @@ export function PatientPhotoDialog({
           type="button"
           className="primary"
           disabled={busy || !prepared}
-          onClick={() => setError(PHOTO_UPLOAD_UNAVAILABLE)}
+          onClick={() => void save()}
         >
           Сохранить
         </button>

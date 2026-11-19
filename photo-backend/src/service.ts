@@ -10,6 +10,7 @@ export interface PhotoConfig {
   writesEnabled: boolean;
   pilotPatientId: string;
   bucket: string;
+  conditionalUpdateSupported: boolean;
 }
 export class PhotoError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
@@ -32,10 +33,15 @@ export class PhotoService {
   constructor(private readonly config: PhotoConfig, private readonly dependencies: PhotoDependencies) {}
   async save(patientId: string, jpeg: Uint8Array, requestId: string): Promise<{ photo: string }> {
     if (!this.config.writesEnabled) throw new PhotoError("WRITES_DISABLED", "Запись фотографий отключена.");
+    if (!this.config.conditionalUpdateSupported)
+      throw new PhotoError("NO_CONDITIONAL_UPDATE", "Условное обновление пациента не подтверждено.");
     if (!validId(patientId) || patientId !== this.config.pilotPatientId)
       throw new PhotoError("PATIENT_DENIED", "Пациент не разрешён для пилота.");
     if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new PhotoError("BAD_REQUEST", "Некорректный ID запроса.");
     if (!jpegValid(jpeg)) throw new PhotoError("BAD_IMAGE", "Требуется JPEG до 8 МБ.");
+    for (const [id, result] of this.completed) {
+      if (Date.now() - result.at >= 10 * 60_000) this.completed.delete(id);
+    }
     const previous = this.completed.get(requestId);
     if (previous && Date.now() - previous.at < 10 * 60_000) return { photo: previous.photo };
     if (this.inFlight.has(patientId) || this.inFlight.has(requestId))
@@ -44,6 +50,7 @@ export class PhotoService {
     try {
       const before = await this.dependencies.getPatient(patientId);
       if (before.patient.id !== patientId) throw new PhotoError("BAD_PATIENT", "Ответ пациента не совпал.");
+      if (!before.etag) throw new PhotoError("NO_CONDITIONAL_UPDATE", "ETag пациента отсутствует.");
       const key = `${randomUUID()}.jpg`;
       const photo = `https://storage.yandexcloud.net/${this.config.bucket}/${key}`;
       await this.dependencies.putObject(key, jpeg);

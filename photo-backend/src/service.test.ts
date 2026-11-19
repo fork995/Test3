@@ -7,7 +7,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 function fixture() {
   let patient: Patient = { id: "pilot", name: "Test", diagnoses: ["unchanged"], photo: "old" };
   let puts = 0, uploads = 0;
-  const service = new PhotoService({ writesEnabled: true, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
+  const service = new PhotoService({ writesEnabled: true, conditionalUpdateSupported: true, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
     async getPatient() { return { patient: structuredClone(patient), etag: `"v${puts}"` }; },
     async putObject() { uploads++; },
     async putPatient(_id, next, etag) { assert.equal(etag, `"v${puts}"`); patient = structuredClone(next); puts++; },
@@ -16,7 +16,7 @@ function fixture() {
 }
 test("writes are disabled by default configuration", async () => {
   const f = fixture();
-  const service = new PhotoService({ writesEnabled: false, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
+  const service = new PhotoService({ writesEnabled: false, conditionalUpdateSupported: false, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
     async getPatient() { throw Error("unexpected GET"); }, async putObject() { throw Error("unexpected S3"); }, async putPatient() { throw Error("unexpected PUT"); },
   });
   await assert.rejects(service.save("pilot", jpeg, id), (e: unknown) => e instanceof PhotoError && e.code === "WRITES_DISABLED");
@@ -38,9 +38,19 @@ test("rejects other patient before any side effect", async () => {
 });
 test("refuses PUT without conditional update support", async () => {
   let puts = 0;
-  const service = new PhotoService({ writesEnabled: true, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
-    async getPatient() { return { patient: { id: "pilot" } }; }, async putObject() {}, async putPatient() { puts++; },
+  const service = new PhotoService({ writesEnabled: true, conditionalUpdateSupported: true, pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
+    async getPatient() { return { patient: { id: "pilot" } }; }, async putObject() { puts++; }, async putPatient() { puts++; },
   });
   await assert.rejects(service.save("pilot", jpeg, id), (e: unknown) => e instanceof PhotoError && e.code === "NO_CONDITIONAL_UPDATE");
   assert.equal(puts, 0);
+});
+test("does not call S3 when conditional update has not been confirmed", async () => {
+  let calls = 0;
+  const service = new PhotoService({ writesEnabled: true, conditionalUpdateSupported: false,
+    pilotPatientId: "pilot", bucket: "clevervet-patient-photos" }, {
+    async getPatient() { calls++; return { patient: { id: "pilot" }, etag: '"v1"' }; },
+    async putObject() { calls++; }, async putPatient() { calls++; },
+  });
+  await assert.rejects(service.save("pilot", jpeg, id), (e: unknown) => e instanceof PhotoError && e.code === "NO_CONDITIONAL_UPDATE");
+  assert.equal(calls, 0);
 });
