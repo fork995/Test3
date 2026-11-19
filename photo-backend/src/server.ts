@@ -43,7 +43,7 @@ export function createPhotoHttpServer(options: HttpOptions) {
       return reply(response, 204, {});
     }
     if (request.method === "GET" && request.url === "/health")
-      return reply(response, 200, { status: "ok", writesEnabled: false, mockEnabled: options.mockEnabled, version: "0.2.0" });
+      return reply(response, 200, { status: "ok", writesEnabled: false, mockEnabled: options.mockEnabled, version: "0.3.0" });
     const match = /^\/api\/mock\/patients\/([A-Za-z0-9_-]{1,128})\/photo$/.exec(request.url ?? "");
     if (!match || request.method !== "POST") return reply(response, 404, { error: "NOT_FOUND" });
     if (!options.mockEnabled) return reply(response, 503, { error: "MOCK_DISABLED" });

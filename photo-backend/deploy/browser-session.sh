@@ -3,6 +3,8 @@ set -eu
 umask 077
 base=/home/admin/clevervet-runtime
 profile=$(mktemp -d /dev/shm/clevervet-browser.XXXXXXXX)
+profile_pointer=/dev/shm/clevervet-browser-profile
+printf '%s\n' "$profile" > "$profile_pointer"
 password_file=/dev/shm/clevervet-vnc-password
 display_root=$base/display-libs/root
 browser_root=$base/browser-libs/root
@@ -18,6 +20,7 @@ cleanup() {
   done
   case "$profile" in /dev/shm/clevervet-browser.*) rm -rf -- "$profile" ;; esac
   rm -f -- "$password_file"
+  rm -f -- "$profile_pointer"
 }
 trap cleanup EXIT INT TERM
 "$display_root/usr/bin/Xvfb" :99 -screen 0 1024x768x24 -nolisten tcp >/dev/null 2>&1 &

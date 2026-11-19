@@ -9,7 +9,7 @@
 - Изолированные адаптеры JWT/JWKS, S3 PutObject и CleverVet GET/PUT; к HTTP-маршруту **подключены только mock-адаптеры**.
 - Реальные операции с CleverVet и Yandex Object Storage недоступны. `PHOTO_WRITES_ENABLED` для реального сервиса не используется и не включает их.
 - `src/service.ts` запрещает S3 PutObject до проверки поддержки условного обновления и наличия ETag. Поддержка `If-Match` оригинальным CleverVet пока **не подтверждена**.
-- Отдельная локальная админка на порту 8788 с хешированным паролем, cookie-сессией и CSRF. Проверка CleverVet API и получение OIDC-токенов ещё не реализованы; UI сообщает об этом явно.
+- Отдельная локальная админка на порту 8788 с хешированным паролем, cookie-сессией и CSRF. Подготовлен штатный Authorization Code + PKCE с callback на loopback, проверкой access/ID JWT и read-only `GET /api/branches`. Пока нет зарегистрированного OIDC-клиента с разрешённым callback, живая серверная сессия недоступна.
 
 ## Локальная проверка
 
@@ -30,6 +30,18 @@ curl http://127.0.0.1:8787/health
 
 Xvfb and interactive Chromium launch after the administrator installed x11-xkb-utils. Headless Chromium has also been verified.
 
+## Серверная авторизация OIDC
+
+Публичный оригинальный CleverVet загружает `configuration/oidc.config.json` и использует `angular-auth-oidc-client`: Authorization Code с PKCE, аудиторию `https://api.clevervet.tech`, Auth0 `https://dev-l4aq9wjx.eu.auth0.com/`. Callback оригинального клиента — сайт CleverVet. Авторизованная сессия в его Chromium подтверждена пользователем, но обычный OIDC не передаёт её токены нашему backend автоматически.
+
+Для безопасного подключения нужен OIDC-клиент, разрешённый владельцем Auth0 для нашего backend, с точным callback `http://localhost:8788/admin/oidc/callback` и доступом к аудитории CleverVet API. Не использовать идентификатор оригинального SPA-клиента с новым callback без его явного разрешения. Указать `OIDC_CLIENT_ID` вне репозитория; если клиент конфиденциальный, сохранить его secret в отдельном файле `0600` и указать `OIDC_CLIENT_SECRET_FILE`. Без этих настроек кнопка подключения вернёт `OIDC_CLIENT_NOT_CONFIGURED`.
+
+После запуска Chromium администратор нажимает «Подключить OIDC к backend». Backend создаёт случайные `state`, `nonce` и PKCE verifier; серверный Chromium открывает Auth0. Администратор проходит штатный вход или использует действующую SSO-сессию. Callback передаёт backend одноразовый authorization code. Backend обменивает его на токены, проверяет JWT по JWKS, issuer, разные audience для access/ID token, subject, nonce и сроки; затем определяет наличие и структуру S3 claim без вывода значений. Токены существуют только в памяти процесса до истечения срока или команды завершения. Refresh token не запрашивается и на диск не записывается.
+
+Для управления браузером задать `BROWSER_OPEN_URL_SCRIPT=/home/admin/clevervet-runtime/photo-backend/deploy/browser-open-url.sh`. Оба browser script должны иметь право исполнения. `ADMIN_BROWSER_MINUTES` задаёт срок Chromium от 5 до 120 минут (по умолчанию 20). Кнопка «Завершить серверную сессию» немедленно закрывает Chromium и удаляет ссылки на токены из памяти. JavaScript не позволяет гарантированно затереть уже созданные неизменяемые строки в heap; это ограничение оперативного хранения.
+
+`POST /admin/check` выполняет только `GET https://backend.clevervet.tech/api/branches`. Ответ с данными не сохраняется и не возвращается в панель; показываются статус API и время последней успешной проверки. Административный access token не используется для вызовов обычных пользователей Test3. Реальные операции S3/PUT по-прежнему отсутствуют в HTTP-маршрутах.
+
 ## Что осталось до реальной записи
 
-Подтвердить штатный OIDC-процесс и разрешённое серверное использование сессии; реализовать зашифрованное хранение и удаление серверной сессии; отдельно проверить права S3 и `If-Match` CleverVet API; реализовать реальный защищённый HTTP-маршрут после отдельного разрешения на пилот. Не передавать S3 credentials или ID token обычному Test3.
+Получить разрешённый OIDC-клиент и проверить живой callback, access/ID token, S3 claim и read-only API; позже реализовать зашифрованное постоянное хранение. Отдельно проверить права S3 и `If-Match` CleverVet API; реальный защищённый маршрут записи создавать только после разрешения на пилот. Не передавать S3 credentials или ID token обычному Test3.

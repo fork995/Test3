@@ -1,12 +1,12 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 
 const credentialClaim = "https://storage.yandexcloud.net/credentials";
 export interface StorageCredentials { accessKeyId: string; secretAccessKey: string; sessionToken?: string }
 export interface OidcConfig { issuer: string; audience: string; jwksUrl: string }
-export async function verifyToken(token: string, config: OidcConfig): Promise<JWTPayload> {
+export async function verifyToken(token: string, config: OidcConfig, keyResolver?: JWTVerifyGetKey): Promise<JWTPayload> {
   if (!config.issuer.startsWith("https://") || !config.jwksUrl.startsWith("https://"))
     throw Error("OIDC configuration requires HTTPS");
-  const jwks = createRemoteJWKSet(new URL(config.jwksUrl));
+  const jwks = keyResolver ?? createRemoteJWKSet(new URL(config.jwksUrl));
   const { payload } = await jwtVerify(token, jwks, {
     issuer: config.issuer, audience: config.audience,
     algorithms: ["RS256", "ES256"], clockTolerance: 5,
