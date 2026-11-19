@@ -102,10 +102,11 @@ export function PatientPhotoDialog({
       )}
 
       <label className="secondary full patient-photo-picker">
-        {busy ? "Подготовка изображения…" : "Выбрать изображение"}
+        {busy ? "Подготовка изображения…" : "Сделать снимок"}
         <input
           type="file"
           accept="image/jpeg,image/png,image/heic,image/heif"
+          capture="environment"
           disabled={busy}
           onChange={(event) => void choose(event.target.files?.[0])}
         />
