@@ -6,6 +6,8 @@
 - HTTP-сервер предоставляет только `GET /health` на `127.0.0.1:8787`; реальные записи отсутствуют.
 - Node.js ARM64 установлен в `/home/admin/clevervet-runtime/node-v22.23.5-linux-arm64/` без пакетного менеджера.
 - Код и зависимости расположены в `/home/admin/clevervet-runtime/photo-backend/`.
+- `cloudflared` 2026.11.1 размещён в `/home/admin/clevervet-runtime/cloudflared-2026.11.1-linux-arm64` (SHA-256 `b155cec3e48e489cfb8e5c602769fb8c771083018d8881d68b4d18a791567c5a`). Именованный Tunnel не создан: домена Cloudflare пока нет.
+- Playwright 1.65.1 и Chromium ARM64 загружены в `/home/admin/clevervet-runtime/admin-browser/` и `/home/admin/clevervet-runtime/pw-browsers/`. Chromium не запускается без системных библиотек, начиная с `libnspr4` и `libnss3`; админка и интерактивная авторизация не созданы.
 - Системная служба пока не создана: для отдельного системного пользователя и автозапуска нужен ограниченный привилегированный доступ.
 
 ## Внешняя резервная копия
@@ -32,7 +34,7 @@ PATH=/home/admin/clevervet-runtime/node-v22.23.5-linux-arm64/bin:$PATH node dist
 
 ## Откат созданного этапа
 
-Остановить тестовый процесс `Ctrl+C`. Убедиться, что порт 8787 не занят: `ss -lnt | grep 8787`. Затем можно удалить **только** `/home/admin/clevervet-runtime/photo-backend/` и `/home/admin/clevervet-runtime/node-v22.23.5-linux-arm64/` вместе с двумя загруженными архивами в этом каталоге. Перед удалением проверить точные пути. Системные службы, маршруты, Xray, Wi-Fi, DHCP и SSH этим этапом не изменены. Внешний backup сохранить отдельно.
+Остановить тестовый процесс `Ctrl+C`. Убедиться, что порт 8787 не занят: `ss -lnt | grep 8787`. Постоянные службы backend, Tunnel и браузера не созданы, поэтому отключать автозапуск пока нечего. После проверки точных путей можно удалить **только** `/home/admin/clevervet-runtime/` (Node.js, backend, тестовую копию Test3, `cloudflared`, Playwright, Chromium и загрузочные архивы). Это не затрагивает системные службы, маршруты, Xray, Wi-Fi, DHCP и SSH. Внешний backup сохранить отдельно.
 
 ## Ограничения следующего этапа
 
