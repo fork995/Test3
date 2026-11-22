@@ -518,7 +518,7 @@ function Department({
           </b>
           <small>
             {period
-              ? `${formatTime(period.start, zone)} → ${formatDate(period.end, zone)} ${formatTime(period.end, zone)}`
+              ? `${formatTime(period.start, zone)} → ${tab === "general" && formatDate(period.start, zone) === formatDate(period.end, zone) ? "" : formatDate(period.end, zone) + " "}${formatTime(period.end, zone)}`
               : "Откройте настройки времени"}
           </small>
         </div>
@@ -537,7 +537,7 @@ function Department({
         <button className="quiet small" onClick={today}>
           Текущая смена
         </button>
-        <span>{zone}</span>
+        <span>{tab === "general" && zone === "Europe/Moscow" ? "МСК" : zone}</span>
       </div>
     </>
   );

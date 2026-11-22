@@ -426,6 +426,9 @@ export function WorkBoard({
     });
   }
   const compactLaterHours = [...new Set(displayed.filter(item => bucketAt(item.slot.at) === "later").map(item => currentHourStart(item.slot.at, zone)))].sort((a,b) => a-b);
+  const idlePatients = prepared.filter(
+    p => p.data?.hasData && p.schedule.complete && p.schedule.tasks.length === 0,
+  );
   const compactPastCount = displayed.filter(item => bucketAt(item.slot.at) === "overdue").length;
   return (
     <div className="work-board">
@@ -442,7 +445,7 @@ export function WorkBoard({
       )}
       {compact && !history ? <>
         <nav className="compact-feed-filters" aria-label="Фильтр заданий">{([["all", "Все", working.length], ["required", "Требуют", working.filter(x => x.state === "unmarked").length], ["missed", "Пропущенные", missedCount]] as const).map(([value,label,total]) => <button key={value} className={feedFilter === value ? "active" : ""} aria-pressed={feedFilter === value} onClick={() => setFeedFilter(value)}>{label} · {total}</button>)}</nav>
-        <section className="time-block past-block"><button className="time-toggle" aria-expanded={pastOpen} onClick={() => setPastOpen(v=>!v)}>⚠ Пропущенные <span>{missedCount}{feedFilter === "all" && uncertainPast ? ` · не определено: ${uncertainPast}` : ""} {pastOpen ? "⌃" : "⌄"}</span></button>{pastOpen && (compactPastCount ? compactRows("overdue") : <p className="work-empty">Нет назначений.</p>)}</section>
+        <section className={`time-block past-block${missedCount ? " has-overdue" : ""}`}><button className="time-toggle" aria-expanded={pastOpen} onClick={() => setPastOpen(v=>!v)}>⚠ Пропущенные <span>{missedCount}{feedFilter === "all" && uncertainPast ? ` · не определено: ${uncertainPast}` : ""} {pastOpen ? "⌃" : "⌄"}</span></button>{pastOpen && (compactPastCount ? compactRows("overdue") : <p className="work-empty">Нет назначений.</p>)}</section>
         {feedFilter !== "missed" && <><section className="time-block current-block"><h2>Сейчас · {formatTime(start,zone)} <span data-status={hourDone(start) ? "done" : "planned"}>{compactItems("current").length}</span></h2>{compactRows("current")}{!compactItems("current").length && hourDone(start) && <p className="work-empty">Все рассчитанные назначения имеют отметку.</p>}</section><section className="time-block next-block"><h2>Следующий час · {formatTime(start + HOUR,zone)} <span data-status={hourDone(start + HOUR) ? "done" : "planned"}>{compactItems("next").length}</span></h2>{compactRows("next")}{!compactItems("next").length && hourDone(start + HOUR) && <p className="work-empty">Все рассчитанные назначения имеют отметку.</p>}</section><section className="time-block later-block"><button className="time-toggle" aria-expanded={laterOpen} onClick={() => setLaterOpen(v=>!v)}>Позже в смене <span>{compactItems("later").length} {laterOpen ? "⌃" : "⌄"}</span></button>{laterOpen && compactLaterHours.map(hour => <div key={hour}><h3>{formatDate(hour,zone)} · {formatTime(hour,zone)}</h3>{compactRows("later",hour)}</div>)}</section></>}
       </> : history ? (
         <section className="work-history">
@@ -479,7 +482,7 @@ export function WorkBoard({
       ) : (
         <>
           {overdue.length > 0 && (
-            <section className="time-block past-block">
+            <section className="time-block past-block has-overdue">
               <button
                 className="time-toggle"
                 aria-expanded={pastOpen}
@@ -634,25 +637,28 @@ export function WorkBoard({
           ))}
         </section>
       )}
-      {!history &&
-        prepared
-          .filter(
-            (p) =>
-              p.data?.hasData &&
-              p.schedule.complete &&
-              p.schedule.tasks.length === 0,
-          )
-          .map((p) => (
-            <div key={p.patient.cardId} className="work-idle-patient">
-              <button
-                className="quiet"
-                onClick={() => onOpenPatient(p.patient)}
-              >
-                {p.patient.name}
-              </button>
-              <span>0 открытых подтверждённых заданий</span>
-            </div>
-          ))}
+      {!history && (compact ? idlePatients.length > 0 && (
+        <details className="time-block idle-patients" open={expanded.has("compact:idle")} onToggle={event => {
+          const open = event.currentTarget.open;
+          setExpanded(old => {
+            if (old.has("compact:idle") === open) return old;
+            const next = new Set(old);
+            if (open) next.add("compact:idle"); else next.delete("compact:idle");
+            return next;
+          });
+        }}>
+          <summary className="time-toggle">Без открытых подтверждённых заданий · {idlePatients.length}</summary>
+          {idlePatients.map(p => <div key={p.patient.cardId} className="work-idle-patient">
+            <button className="quiet" onClick={() => onOpenPatient(p.patient)}>{p.patient.name}</button>
+            <span>0 открытых подтверждённых заданий</span>
+          </div>)}
+        </details>
+      ) : idlePatients.map(p => (
+        <div key={p.patient.cardId} className="work-idle-patient">
+          <button className="quiet" onClick={() => onOpenPatient(p.patient)}>{p.patient.name}</button>
+          <span>0 открытых подтверждённых заданий</span>
+        </div>
+      )))}
     </div>
   );
 }
