@@ -20,9 +20,14 @@ const proxy = spawn(`${base}/node-v22.23.5-linux-arm64/bin/node`, [`${base}/phot
 });
 let client;
 try {
+  const browserEnv = { ...process.env,
+    LD_LIBRARY_PATH: `${base}/display-libs/root/usr/lib/aarch64-linux-gnu:${base}/browser-libs/root/usr/lib/aarch64-linux-gnu`,
+    FONTCONFIG_FILE: `${base}/browser-libs/root/etc/fonts/fonts.conf`,
+    XDG_DATA_DIRS: `${base}/browser-libs/root/usr/share:${base}/display-libs/root/usr/share:/usr/share`,
+    XKB_CONFIG_ROOT: "/usr/share/X11/xkb" };
   client = await chromium.launch({ executablePath: `${base}/pw-browsers/chromium-1255/chrome-linux-arm64/chrome`,
     headless: true, args: ["--no-sandbox", "--disable-gpu"],
-    env: { ...process.env, LD_LIBRARY_PATH: `${base}/display-libs/root/usr/lib/aarch64-linux-gnu:${base}/browser-libs/root/usr/lib/aarch64-linux-gnu` } });
+    env: browserEnv });
   const context = await client.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
   const url = `https://${address}:${port}/admin`;
@@ -33,8 +38,18 @@ try {
   await page.locator("#password").fill(password);
   await page.locator("#login button").click();
   await page.locator("#start").click();
-  await page.waitForFunction(() => document.querySelector("#vncStatus")?.textContent === "Chromium подключён",
-    undefined, { timeout: 30_000 });
+  try {
+    await page.waitForFunction(() => document.querySelector("#vncStatus")?.textContent === "Chromium подключён",
+      undefined, { timeout: 30_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      vncStatus: document.querySelector("#vncStatus")?.textContent,
+      stages: [...document.querySelectorAll("#vncStages li")].map(node => node.textContent),
+      browserStatus: document.querySelector("#status")?.textContent,
+      message: document.querySelector("#message")?.textContent }));
+    process.stdout.write(`diagnostics=${JSON.stringify(diagnostics)}\n`);
+    throw error;
+  }
   const screen = page.locator("#screen canvas");
   await screen.waitFor();
   const canvas = await screen.evaluate(node => ({ width: node.width, height: node.height }));
