@@ -67,15 +67,18 @@ try {
   process.stdout.write(`button_connected=true canvas=${canvas.width}x${canvas.height} image_bytes=${imageBytes}\n`);
   if (display.pixel[3] === 0) throw Error("VNC_FRAMEBUFFER_EMPTY");
   const beforeInput = await screen.evaluate(node => node.toDataURL());
-  await screen.click();
-  await page.keyboard.press("Control+L");
-  await page.keyboard.type("about:version");
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    rfb.sendKey(0xffe3, "ControlLeft", true);
+    rfb.sendKey(0x6c, "KeyL");
+    rfb.sendKey(0xffe3, "ControlLeft", false);
+    for (const character of "about:version") rfb.sendKey(character.codePointAt(0));
+    rfb.sendKey(0xff0d, "Enter");
+  });
+  await page.waitForTimeout(2000);
   const afterInput = await screen.evaluate(node => node.toDataURL());
   await screen.screenshot({ path: "/tmp/clevervet-smoke-after.png" });
-  await page.keyboard.press("Escape");
-  process.stdout.write("keyboard_frame_changed=" + (beforeInput !== afterInput) + "\n");
+  if (beforeInput === afterInput) throw Error("VNC_SENDKEY_FRAME_UNCHANGED");
+  process.stdout.write("sendkey_frame_changed=true\n");
   await page.waitForTimeout(61_000);
   process.stdout.write(`stable=${await page.locator("#vncStatus").textContent()}\n`);
   await page.locator("#stop").click();
