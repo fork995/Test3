@@ -52,10 +52,17 @@ try {
   }
   const screen = page.locator("#screen canvas");
   await screen.waitFor();
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(5000);
   const canvas = await screen.evaluate(node => ({ width: node.width, height: node.height }));
   const imageBytes = (await screen.screenshot({ path: "/tmp/clevervet-smoke-before.png" })).length;
+  const display = await page.evaluate(() => ({
+    rfbState: rfb?._rfbConnectionState, socket: rfb?._sock?.readyState,
+    framebuffer: [rfb?._fbWidth, rfb?._fbHeight],
+    display: [rfb?._display?._fbWidth, rfb?._display?._fbHeight],
+    pixel: [...document.querySelector("#screen canvas").getContext("2d").getImageData(0, 0, 1, 1).data] }));
+  process.stdout.write("rfb_display=" + JSON.stringify(display) + "\n");
   process.stdout.write(`button_connected=true canvas=${canvas.width}x${canvas.height} image_bytes=${imageBytes}\n`);
+  if (display.pixel[3] === 0) throw Error("VNC_FRAMEBUFFER_EMPTY");
   const beforeInput = await screen.evaluate(node => node.toDataURL());
   await screen.click();
   await page.keyboard.press("Control+L");
