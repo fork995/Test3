@@ -53,7 +53,7 @@ try {
   await page.locator("#stop").click();
   await context.close();
 } finally {
-  control.stop();
+  await control.stop();
   if (client) await client.close();
   proxy.kill("SIGTERM");
   await new Promise(resolve => server.close(resolve));

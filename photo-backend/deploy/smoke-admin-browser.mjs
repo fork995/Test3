@@ -23,23 +23,32 @@ try {
   const page = await (await fetch(base + "/admin", { headers: { Cookie: cookie } })).text();
   csrf = /const csrf="([A-Za-z0-9_-]+)"/.exec(page)?.[1];
   if (!cookie || !csrf) throw Error("Admin session unavailable");
-  const started = await post("/admin/browser/start");
-  process.stdout.write(`start_http=${started.status}\n`);
-  if (started.status !== 202) throw Error("Start failed");
-  let ready = false;
-  for (let i = 0; i < 30; i++) {
-    const status = await (await fetch(base + "/admin/status", { headers: { Cookie: cookie } })).json();
-    if (status.browserState.phase === "ready") { ready = true; break; }
-    if (status.browserState.phase === "failed") throw Error(`Browser ${status.browserState.reason}`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  for (let cycle = 1; cycle <= 2; cycle++) {
+    const started = await post("/admin/browser/start");
+    process.stdout.write(`cycle=${cycle} start_http=${started.status}\n`);
+    if (started.status !== 202) throw Error("Start failed");
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      const status = await (await fetch(base + "/admin/status", { headers: { Cookie: cookie } })).json();
+      if (status.browserState.phase === "ready") { ready = true; break; }
+      if (status.browserState.phase === "failed") throw Error(`Browser ${status.browserState.reason}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    if (!ready) throw Error("Browser did not become ready");
+    const vnc = await post("/admin/vnc/password");
+    process.stdout.write(`cycle=${cycle} ready=${ready} password_http=${vnc.status}\n`);
+    if (vnc.status !== 200) throw Error("VNC password unavailable");
+    if (cycle === 1) {
+      await new Promise(resolve => setTimeout(resolve, 61_000));
+      const stable = await (await fetch(base + "/admin/status", { headers: { Cookie: cookie } })).json();
+      process.stdout.write(`stable_after_61s=${stable.browserState.phase}\n`);
+      if (stable.browserState.phase !== "ready") throw Error("Browser became unavailable");
+    }
+    const stopped = await post("/admin/browser/stop");
+    process.stdout.write(`cycle=${cycle} stop_http=${stopped.status}\n`);
+    if (stopped.status !== 200) throw Error("Stop failed");
   }
-  if (!ready) throw Error("Browser did not become ready");
-  const vnc = await post("/admin/vnc/password");
-  process.stdout.write(`ready=${ready} password_http=${vnc.status}\n`);
-  if (vnc.status !== 200) throw Error("VNC password unavailable");
-  const stopped = await post("/admin/browser/stop");
-  process.stdout.write(`stop_http=${stopped.status}\n`);
 } finally {
-  browser.stop();
+  await browser.stop();
   await new Promise(resolve => server.close(resolve));
 }

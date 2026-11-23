@@ -8,14 +8,14 @@ test("exited launch is reported as failed and can be restarted", async () => {
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal((await control.status()).phase, "failed");
   assert.equal(control.start(), true);
-  control.stop();
+  await control.stop();
   assert.equal((await control.status()).phase, "stopped");
 });
 
 test("admin protects browser connection, token checks and VNC password", async () => {
   let running = false;
   const browser: BrowserControl = { start() { running = true; return true; },
-    stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; },
+    async stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; },
     async status() { return { phase: running ? "ready" as const : "stopped" as const }; } };
   const server = createAdminServer(await hashAdminPassword("synthetic-admin-password-123"), browser);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
