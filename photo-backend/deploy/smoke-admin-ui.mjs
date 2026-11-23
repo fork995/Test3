@@ -62,8 +62,18 @@ try {
     undefined, { timeout: 15_000 });
   process.stdout.write("stopped=true\n");
   await page.locator("#start").click();
-  await page.waitForFunction(() => document.querySelector("#vncStatus")?.textContent === "Chromium подключён",
-    undefined, { timeout: 30_000 });
+  try {
+    await page.waitForFunction(() => document.querySelector("#vncStatus")?.textContent === "Chromium подключён",
+      undefined, { timeout: 30_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      vncStatus: document.querySelector("#vncStatus")?.textContent,
+      stages: [...document.querySelectorAll("#vncStages li")].map(node => node.textContent),
+      browserStatus: document.querySelector("#status")?.textContent,
+      message: document.querySelector("#message")?.textContent }));
+    process.stdout.write(`restart_diagnostics=${JSON.stringify(diagnostics)}\n`);
+    throw error;
+  }
   process.stdout.write("restarted=true\n");
   await page.locator("#stop").click();
   await context.close();
