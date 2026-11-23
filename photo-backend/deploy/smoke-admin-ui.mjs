@@ -55,6 +55,15 @@ try {
   const canvas = await screen.evaluate(node => ({ width: node.width, height: node.height }));
   const imageBytes = (await screen.screenshot()).length;
   process.stdout.write(`button_connected=true canvas=${canvas.width}x${canvas.height} image_bytes=${imageBytes}\n`);
+  const beforeInput = await screen.evaluate(node => node.toDataURL());
+  await screen.click();
+  await page.keyboard.press("Control+L");
+  await page.keyboard.type("about:blank");
+  await page.waitForTimeout(700);
+  const afterInput = await screen.evaluate(node => node.toDataURL());
+  if (beforeInput === afterInput) throw Error("VNC_KEYBOARD_FRAME_UNCHANGED");
+  await page.keyboard.press("Escape");
+  process.stdout.write("keyboard_frame_changed=true\n");
   await page.waitForTimeout(61_000);
   process.stdout.write(`stable=${await page.locator("#vncStatus").textContent()}\n`);
   await page.locator("#stop").click();
