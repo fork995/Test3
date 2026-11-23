@@ -4,7 +4,7 @@ import { createAdminServer, hashAdminPassword, type BrowserControl } from "./adm
 
 test("admin protects browser connection, token checks and VNC password", async () => {
   let running = false;
-  const browser: BrowserControl = { start() { running = true; return true; }, open() { return false; },
+  const browser: BrowserControl = { start() { running = true; return true; },
     stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; } };
   const server = createAdminServer(await hashAdminPassword("synthetic-admin-password-123"), browser);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));

@@ -10,7 +10,6 @@ import { AdminOidcSession } from "./oidcSession.js";
 const derive = promisify(scrypt);
 export interface BrowserControl {
   start(): boolean;
-  open(url: string): boolean;
   stop(): void;
   running(): boolean;
   password(): string | undefined;
@@ -42,7 +41,7 @@ function readVncPassword(path?: string): string | undefined {
     return /^[a-f0-9]{8}$/i.test(password) ? password : undefined;
   } catch { return undefined; }
 }
-export function createBrowserControl(script?: string, openScript?: string, durationMs = browserDurationMs(),
+export function createBrowserControl(script?: string, durationMs = browserDurationMs(),
   passwordFile?: string): BrowserControl {
   let child: ChildProcess | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -63,12 +62,6 @@ export function createBrowserControl(script?: string, openScript?: string, durat
       child.once("exit", finished);
       timer = setTimeout(() => control.stop(), durationMs);
       timer.unref();
-      return true;
-    },
-    open(url) {
-      if (!openScript || !this.running() || !url.startsWith("https://dev-l4aq9wjx.eu.auth0.com/authorize?")) return false;
-      const process = spawn(openScript, [url], { stdio: "ignore", shell: false });
-      process.on("error", () => {});
       return true;
     },
     stop() {
@@ -129,6 +122,7 @@ function html(response: ServerResponse, panel: boolean, csrf = "") {
 <h1>CleverVet · Orange Pi</h1>${panel ? `<p id="status">Проверка состояния…</p><div class="actions"><button id="start">Открыть Chromium</button>
 <button id="connect">Подключить текущую сессию</button><button id="check">Проверить API</button><button id="stop">Закрыть Chromium</button>
 <button id="showPassword">Показать / скопировать пароль VNC</button><button id="end">Завершить серверную сессию</button><button id="logout">Выйти из админки</button></div>
+<label>Ключ существующего JPEG для проверки HEAD <input id="s3Key" autocomplete="off" spellcheck="false" placeholder="UUID.jpg"></label><button id="headObject">Проверить S3 HEAD</button>
 <section id="viewer" hidden><p id="vncStatus">Подключение к Chromium…</p><div id="screen" aria-label="Удалённый экран Chromium"></div><p><output id="vncPassword" hidden></output></p></section>` :
 `<form id="login"><label>Пароль администратора <input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>`}
 <p id="message" role="status"></p><script nonce="${nonce}">
@@ -146,8 +140,9 @@ client.addEventListener('securityfailure',event=>{msg.textContent='Ошибка 
 client.addEventListener('disconnect',()=>{if(rfb!==client)return;rfb=null;vncStatus.textContent='Соединение с Chromium прервано';retryVnc()});
 }catch{vncStatus.textContent='Chromium запускается…';retryVnc()}finally{connecting=false}}
 async function refresh(){const r=await fetch('/admin/status');if(r.status===401){location.reload();return}const s=await r.json();document.getElementById('status').textContent='CleverVet: '+s.authorization+' · Учётная запись: '+(s.subject||'—')+' · API: '+s.api+' · Chromium: '+(s.browser?'работает':'остановлен');if(s.browser)void connectVnc();else disconnectVnc()}
-for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/browser/attach'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||'';if(id==='logout')location.reload();else void refresh()};
+for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/browser/attach'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||(r.requests?JSON.stringify(r.requests):'');if(id==='logout')location.reload();else void refresh()};
 document.getElementById('showPassword').onclick=async()=>{const result=await post('/admin/vnc/password');if(result.status!==200){msg.textContent=result.error||'Пароль VNC пока недоступен';return}const output=document.getElementById('vncPassword');output.textContent=result.password;output.hidden=false;let copied=false;try{await navigator.clipboard.writeText(result.password);copied=true}catch{}msg.textContent=copied?'Пароль VNC показан и скопирован.':'Пароль VNC показан; автоматическое копирование недоступно.';setTimeout(()=>{output.textContent='';output.hidden=true},30000)};
+document.getElementById('headObject').onclick=async()=>{const input=document.getElementById('s3Key');const key=input.value.trim();input.value='';const result=await post('/admin/s3/head',{key});msg.textContent=result.error||JSON.stringify(result.result)};
 void refresh();setInterval(()=>void refresh(),5000);` :
 `document.getElementById('login').onsubmit=async e=>{e.preventDefault();const input=document.getElementById('password');const r=await post('/admin/login',{password:input.value});input.value='';if(r.status===200)location.reload();else msg.textContent='Неверный пароль или временная блокировка.'}`}
 </script></html>`);
@@ -219,7 +214,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const info = lstatSync(hashFile);
   if (info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o077))) throw Error("Admin hash file must be a private regular file");
   const record = readFileSync(hashFile, "utf8");
-  const browser = createBrowserControl(process.env.BROWSER_LAUNCH_SCRIPT, process.env.BROWSER_OPEN_URL_SCRIPT,
+  const browser = createBrowserControl(process.env.BROWSER_LAUNCH_SCRIPT,
     browserDurationMs(process.env.ADMIN_BROWSER_MINUTES), process.env.VNC_PASSWORD_FILE);
   const oidc = new AdminOidcSession();
   const server = createAdminServer(record, browser, oidc);
