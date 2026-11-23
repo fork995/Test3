@@ -1,104 +1,107 @@
-import { createServer } from 'node:https';
-import { request as httpRequest } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { Socket } from 'node:net';
+import { createServer } from "node:https";
+import { request as httpRequest } from "node:http";
+import { readFileSync } from "node:fs";
+import { Socket } from "node:net";
 
-const address = process.env.LAN_HTTPS_ADDRESS ?? '192.168.3.108';
-const port = Number(process.env.LAN_HTTPS_PORT ?? '8443');
-const adminPort = Number(process.env.LAN_HTTPS_ADMIN_PORT ?? '8788');
-const vncPort = Number(process.env.LAN_HTTPS_VNC_PORT ?? '6080');
+const address = process.env.LAN_HTTPS_ADDRESS;
+const port = Number(process.env.LAN_HTTPS_PORT ?? "8443");
+const adminPort = Number(process.env.LAN_HTTPS_ADMIN_PORT ?? "8788");
+const vncPort = Number(process.env.LAN_HTTPS_VNC_PORT ?? "6080");
+const keyFile = process.env.LAN_HTTPS_KEY_FILE;
+const certFile = process.env.LAN_HTTPS_CERT_FILE;
+if (!address || !keyFile || !certFile) throw Error("LAN HTTPS address, key and certificate are required");
+if (![port, adminPort, vncPort].every(value => Number.isInteger(value) && value >= 1024 && value <= 65535))
+  throw Error("Invalid LAN HTTPS port configuration");
 const origin = `https://${address}:${port}`;
-const key = readFileSync(process.env.LAN_HTTPS_KEY_FILE);
-const cert = readFileSync(process.env.LAN_HTTPS_CERT_FILE);
-const allowed = ip => ip === address || /^192\.168\.3\.(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-4])$/.test(ip);
+const key = readFileSync(keyFile);
+const cert = readFileSync(certFile);
+const privateLan = /^(?:192\.168\.3\.(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-4]))$/;
 
-function deny(res, status = 403) {
-  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(status === 404 ? 'Not found' : 'Forbidden');
+function deny(response, status = 403) {
+  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff" });
+  response.end(status === 404 ? "Not found" : "Forbidden");
 }
-function isAllowed(req) {
-  if (!allowed(req.socket.remoteAddress ?? '')) return false;
-  if (req.headers.host !== `${address}:${port}`) return false;
-  if (req.headers.origin && req.headers.origin !== origin) return false;
-  return true;
+function isAllowed(request) {
+  const remote = request.socket.remoteAddress ?? "";
+  if (remote !== address && !privateLan.test(remote)) return false;
+  if (request.headers.host !== `${address}:${port}`) return false;
+  return !request.headers.origin || request.headers.origin === origin;
 }
-function target(path) {
-  if (path.startsWith('/admin/vnc/')) return { port: vncPort, path: '/' + path.slice('/admin/vnc/'.length) };
-  if (path === '/admin' || path.startsWith('/admin/')) return { port: adminPort, path };
+function vncPath(url) {
+  if (!url.startsWith("/admin/vnc/")) return undefined;
+  const path = "/" + url.slice("/admin/vnc/".length);
+  try {
+    if (decodeURIComponent(path).split("/").includes("..") || path.includes("\\")) return undefined;
+  } catch { return undefined; }
+  return path;
+}
+function target(url) {
+  const path = vncPath(url);
+  if (path) return { port: vncPort, path, vnc: true };
+  if (url === "/admin" || url.startsWith("/admin/")) return { port: adminPort, path: url, vnc: false };
   return undefined;
 }
-function headers(req, upstreamPort) {
-  const h = { ...req.headers, host: `127.0.0.1:${upstreamPort}` };
-  delete h['x-forwarded-for'];
-  delete h['x-forwarded-host'];
-  delete h['x-forwarded-proto'];
-  if (h.origin) h.origin = `http://127.0.0.1:${upstreamPort}`;
-  return h;
+function forwardedHeaders(request, upstreamPort) {
+  const headers = { ...request.headers, host: `127.0.0.1:${upstreamPort}` };
+  delete headers["x-forwarded-for"];
+  delete headers["x-forwarded-host"];
+  delete headers["x-forwarded-proto"];
+  if (headers.origin) headers.origin = `http://127.0.0.1:${upstreamPort}`;
+  return headers;
 }
-function authorized(req) {
+function authorized(request) {
   return new Promise(resolve => {
-    const check = httpRequest({ hostname: '127.0.0.1', port: adminPort, path: '/admin/status',
-      method: 'GET', headers: { host: `127.0.0.1:${adminPort}`, cookie: req.headers.cookie ?? '' }, timeout: 3000 }, res => {
-      res.resume(); resolve(res.statusCode === 200);
+    const check = httpRequest({ hostname: "127.0.0.1", port: adminPort, path: "/admin/status", method: "GET",
+      headers: { host: `127.0.0.1:${adminPort}`, cookie: request.headers.cookie ?? "" }, timeout: 3000 }, response => {
+      response.resume();
+      resolve(response.statusCode === 200);
     });
-    check.on('error', () => resolve(false));
-    check.on('timeout', () => { check.destroy(); resolve(false); });
+    check.on("error", () => resolve(false));
+    check.on("timeout", () => { check.destroy(); resolve(false); });
     check.end();
   });
 }
-const server = createServer({ key, cert, minVersion: 'TLSv1.2' }, async (req, res) => {
-  if (!isAllowed(req)) return deny(res);
-  const route = target(req.url ?? '');
-  if (!route) return deny(res, 404);
-  if (route.port === vncPort && !await authorized(req)) return deny(res);
-  if (req.url === '/admin/vnc-password') {
-    if (!await authorized(req)) return deny(res);
-    const path = '/dev/shm/clevervet-vnc-password';
-    if (!existsSync(path)) return deny(res, 404);
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(readFileSync(path));
-  }
-  const upstream = httpRequest({ hostname: '127.0.0.1', port: route.port, path: route.path,
-    method: req.method, headers: headers(req, route.port), timeout: 15000 }, upstreamRes => {
-    const h = { ...upstreamRes.headers, 'strict-transport-security': 'max-age=31536000',
-      'x-content-type-options': 'nosniff' };
-    if (h['set-cookie']) h['set-cookie'] = h['set-cookie'].map(value => value.includes('; Secure') ? value : `${value}; Secure`);
-    if (route.port === adminPort && req.url === '/admin' && upstreamRes.statusCode === 200) {
-      const chunks = [];
-      upstreamRes.on('data', chunk => chunks.push(chunk));
-      upstreamRes.on('end', () => {
-        let body = Buffer.concat(chunks).toString('utf8');
-        body = body.replace('http://127.0.0.1:6080/vnc.html?host=127.0.0.1&port=6080',
-          '/admin/vnc/vnc.html?path=websockify');
-        body = body.replace('Интерактивный браузер доступен только через отдельный SSH-туннель порта 6080 после запуска.',
-          'Окно Chromium открывается по защищённому локальному адресу. Пароль VNC: <a href="/admin/vnc-password" target="_blank" rel="noopener">показать после запуска</a>.');
-        delete h['content-length'];
-        res.writeHead(200, h); res.end(body);
-      });
-      return;
-    }
-    res.writeHead(upstreamRes.statusCode ?? 502, h); upstreamRes.pipe(res);
+
+const server = createServer({ key, cert, minVersion: "TLSv1.2" }, async (request, response) => {
+  if (!isAllowed(request)) return deny(response);
+  const route = target(request.url ?? "");
+  if (!route) return deny(response, 404);
+  if (route.vnc && request.method !== "GET" && request.method !== "HEAD") return deny(response);
+  if (route.vnc && !await authorized(request)) return deny(response);
+  const upstream = httpRequest({ hostname: "127.0.0.1", port: route.port, path: route.path,
+    method: request.method, headers: forwardedHeaders(request, route.port), timeout: 15000 }, upstreamResponse => {
+    const headers = { ...upstreamResponse.headers, "strict-transport-security": "max-age=31536000",
+      "x-content-type-options": "nosniff" };
+    if (headers["set-cookie"]) headers["set-cookie"] = headers["set-cookie"].map(value =>
+      value.includes("; Secure") ? value : `${value}; Secure`);
+    response.writeHead(upstreamResponse.statusCode ?? 502, headers);
+    upstreamResponse.pipe(response);
   });
-  upstream.on('error', () => deny(res, 502));
-  req.pipe(upstream);
+  upstream.on("error", () => deny(response, 502));
+  request.pipe(upstream);
 });
-server.on('upgrade', async (req, client, head) => {
-  if (!isAllowed(req) || !req.url?.startsWith('/admin/vnc/') || !await authorized(req)) {
-    client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
+
+server.on("upgrade", async (request, client, head) => {
+  if (!isAllowed(request) || request.url !== "/admin/vnc/websockify" || !await authorized(request)) {
+    client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    return;
   }
-  const route = target(req.url);
   const upstream = new Socket();
-  upstream.setTimeout(10000, () => upstream.destroy());
-  upstream.once('error', () => client.destroy());
-  client.once('error', () => upstream.destroy());
-  upstream.connect(vncPort, '127.0.0.1', () => {
+  upstream.setTimeout(10_000, () => upstream.destroy());
+  upstream.once("error", () => client.destroy());
+  client.once("error", () => upstream.destroy());
+  upstream.connect(vncPort, "127.0.0.1", () => {
     upstream.setTimeout(0);
-    const lines = [`GET ${route.path} HTTP/1.1`, ...Object.entries(headers(req, vncPort))
-      .filter(([name]) => name !== 'connection' && name !== 'upgrade')
-      .map(([name, value]) => `${name}: ${value}`), 'Connection: Upgrade', 'Upgrade: websocket', '', ''];
-    upstream.write(lines.join('\r\n'));
+    const headers = forwardedHeaders(request, vncPort);
+    const lines = ["GET /websockify HTTP/1.1", ...Object.entries(headers)
+      .filter(([name]) => name !== "connection" && name !== "upgrade")
+      .map(([name, value]) => `${name}: ${value}`), "Connection: Upgrade", "Upgrade: websocket", "", ""];
+    upstream.write(lines.join("\r\n"));
     if (head.length) upstream.write(head);
-    upstream.pipe(client); client.pipe(upstream);
+    upstream.pipe(client);
+    client.pipe(upstream);
   });
 });
+
 server.listen(port, address);

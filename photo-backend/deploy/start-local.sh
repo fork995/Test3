@@ -14,6 +14,7 @@ env MOCK_MODE=true MOCK_JWT_SECRET_FILE="$base/mock-jwt-secret" \
 env ADMIN_PASSWORD_HASH_FILE="$base/admin-password.hash" \
   BROWSER_LAUNCH_SCRIPT="$base/photo-backend/deploy/browser-session.sh" \
   BROWSER_OPEN_URL_SCRIPT="$base/photo-backend/deploy/browser-open-url.sh" \
+  VNC_PASSWORD_FILE=/dev/shm/clevervet-vnc-password \
   ADMIN_BROWSER_MINUTES=30 "$node" dist/admin.js >> "$base/admin.log" 2>&1 &
 
 until ip -4 -o addr show | grep -q '192.168.3.108/'; do

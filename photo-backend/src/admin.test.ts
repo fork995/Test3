@@ -5,8 +5,10 @@ import { createAdminServer, hashAdminPassword, type BrowserControl } from "./adm
 import { AdminOidcSession } from "./oidcSession.js";
 
 let active = false;
-const browser: BrowserControl = { start() { active = true; return true; }, open() { return active; },
-  stop() { active = false; }, running() { return active; } };
+let browserGeneration = 0;
+const browser: BrowserControl = { start() { if (!active) browserGeneration++; active = true; return true; }, open() { return active; },
+  stop() { active = false; }, running() { return active; },
+  password() { return active ? browserGeneration.toString(16).padStart(8, "0") : undefined; } };
 let server: ReturnType<typeof createAdminServer>;
 let base: string;
 before(async () => {
@@ -20,6 +22,8 @@ after(() => new Promise<void>(resolve => server.close(() => resolve())));
 test("admin requires password, CSRF and local Origin; logout stops browser", async () => {
   const noAuth = await fetch(base + "/admin/status");
   assert.equal(noAuth.status, 401);
+  const noAuthPassword = await fetch(base + "/admin/vnc/password", { method: "POST" });
+  assert.equal(noAuthPassword.status, 401);
   const bad = await fetch(base + "/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "wrong" }) });
   assert.equal(bad.status, 401);
   const login = await fetch(base + "/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "synthetic-admin-password-123" }) });
@@ -29,11 +33,30 @@ test("admin requires password, CSRF and local Origin; logout stops browser", asy
   const page = await (await fetch(base + "/admin", { headers: { Cookie: cookie } })).text();
   const csrf = /const csrf="([A-Za-z0-9_-]+)"/.exec(page)?.[1];
   assert.ok(csrf);
+  assert.match(page, /import\('\/admin\/vnc\/core\/rfb\.js'\)/);
+  assert.doesNotMatch(page, /localStorage|vnc\.html\?|password=/);
   const rejected = await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie } });
   assert.equal(rejected.status, 403);
   const start = await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
   assert.equal(start.status, 200);
   assert.equal(browser.running(), true);
+  const passwordWithoutCsrf = await fetch(base + "/admin/vnc/password", { method: "POST", headers: { Cookie: cookie } });
+  assert.equal(passwordWithoutCsrf.status, 403);
+  const passwordResponse = await fetch(base + "/admin/vnc/password", { method: "POST",
+    headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
+  assert.equal(passwordResponse.status, 200);
+  assert.equal(passwordResponse.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await passwordResponse.json(), { password: "00000001" });
+  const stop = await fetch(base + "/admin/browser/stop", { method: "POST",
+    headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
+  assert.equal(stop.status, 200);
+  const stoppedPassword = await fetch(base + "/admin/vnc/password", { method: "POST",
+    headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
+  assert.equal(stoppedPassword.status, 409);
+  await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
+  const restartedPassword = await fetch(base + "/admin/vnc/password", { method: "POST",
+    headers: { Cookie: cookie, "X-CSRF-Token": csrf } });
+  assert.deepEqual(await restartedPassword.json(), { password: "00000002" });
   const crossOrigin = await fetch(base + "/admin/status", { headers: { Cookie: cookie, Origin: "https://example.org" } });
   assert.equal(crossOrigin.status, 403);
   const status = await (await fetch(base + "/admin/status", { headers: { Cookie: cookie } })).json() as { authorization: string; s3Credentials: boolean };
@@ -50,7 +73,7 @@ test("admin requires password, CSRF and local Origin; logout stops browser", asy
 test("admin callback links a synthetic OIDC session and check performs only read-only API", async () => {
   let opened = "", nonce = "", reads = 0, running = false;
   const control: BrowserControl = { start() { running = true; return true; }, open(url) { opened = url; return running; },
-    stop() { running = false; }, running() { return running; } };
+    stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; } };
   const oidc = new AdminOidcSession({ clientId: "approved-client-123" }, async (input, init) => {
     if (String(input).endsWith("/oauth/token")) return new Response(JSON.stringify({ access_token: "synthetic-access",
       id_token: "synthetic-id", token_type: "Bearer" }), { status: 200 });

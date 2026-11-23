@@ -6,6 +6,7 @@ profile=$(mktemp -d /dev/shm/clevervet-browser.XXXXXXXX)
 profile_pointer=/dev/shm/clevervet-browser-profile
 printf '%s\n' "$profile" > "$profile_pointer"
 password_file=/dev/shm/clevervet-vnc-password
+rm -f -- "$password_file"
 display_root=$base/display-libs/root
 browser_root=$base/browser-libs/root
 export LD_LIBRARY_PATH="$display_root/usr/lib/aarch64-linux-gnu:$browser_root/usr/lib/aarch64-linux-gnu"
@@ -19,6 +20,7 @@ cleanup() {
     if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
   done
   case "$profile" in /dev/shm/clevervet-browser.*) rm -rf -- "$profile" ;; esac
+  case "${password_tmp:-}" in /dev/shm/clevervet-vnc-password.*) rm -f -- "$password_tmp" ;; esac
   rm -f -- "$password_file"
   rm -f -- "$profile_pointer"
 }
@@ -28,7 +30,10 @@ display_pid=$!
 sleep 2
 kill -0 "$display_pid"
 setxkbmap -display :99 -layout us
-openssl rand -hex 4 > "$password_file"
+password_tmp=$(mktemp /dev/shm/clevervet-vnc-password.XXXXXXXX)
+openssl rand -hex 4 > "$password_tmp"
+chmod 600 "$password_tmp"
+mv -f -- "$password_tmp" "$password_file"
 "$display_root/usr/bin/x11vnc" -display :99 -localhost -rfbport 5900 -passwdfile "$password_file" -forever -shared >/dev/null 2>&1 &
 vnc_pid=$!
 python3 "$base/websockify-libs/root/usr/bin/websockify" --web "$base/noVNC" 127.0.0.1:6080 127.0.0.1:5900 >/dev/null 2>&1 &

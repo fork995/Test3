@@ -26,7 +26,9 @@ curl http://127.0.0.1:8787/health
 
 Системный администратор самостоятельно задаёт пароль в SSH-сеансе, передавая его через stdin в `node dist/adminSetup.js /путь/вне/репозитория/admin-password.hash`. Ввод не должен попадать в shell history или аргументы процесса. Хранится только соль и `scrypt`-хеш в файле `0600`.
 
-Установите `ADMIN_PASSWORD_HASH_FILE` и при готовом интерактивном дисплее `BROWSER_LAUNCH_SCRIPT`, затем `npm run start:admin`. Откройте только через `ssh -L 8788:127.0.0.1:8788 -L 6080:127.0.0.1:6080 orangepi` и адрес `http://127.0.0.1:8788/admin`. VNC требует отдельный случайный пароль из `/dev/shm/clevervet-vnc-password`, который виден только владельцу Orange Pi. Без запуска браузера порт 6080 закрыт.
+Установите `ADMIN_PASSWORD_HASH_FILE`, `BROWSER_LAUNCH_SCRIPT`, `BROWSER_OPEN_URL_SCRIPT` и `VNC_PASSWORD_FILE=/dev/shm/clevervet-vnc-password`, затем запустите `npm run start:admin`. Для домашней сети панель и noVNC публикуются только через `deploy/lan-https.mjs` с доверенным TLS-сертификатом. Backend admin (8788), websockify (6080) и VNC (5900) остаются на loopback; порт 5900 в сеть не открывается.
+
+После входа администратора и запуска Chromium панель получает текущий одноразовый пароль через `POST /admin/vnc/password`. Endpoint требует действующую cookie-сессию и точный CSRF-токен, возвращает `Cache-Control: no-store`, а пароль не попадает в URL, cookies или browser storage. noVNC получает пароль непосредственно через свой `RFB` API. Резервная кнопка показывает пароль на 30 секунд и пытается скопировать его в буфер обмена. При каждом запуске `browser-session.sh` атомарно создаёт новый файл `0600`; при остановке файл удаляется, экран отключается, а следующий запуск получает новый пароль.
 
 Xvfb and interactive Chromium launch after the administrator installed x11-xkb-utils. Headless Chromium has also been verified.
 
