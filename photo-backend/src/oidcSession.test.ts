@@ -6,6 +6,25 @@ import { verifyToken } from "./auth.js";
 import { browserDurationMs } from "./admin.js";
 import { AdminOidcSession, audience, callbackUrl, issuer } from "./oidcSession.js";
 
+test("browser credentials validate and compare identical GETs without exposing tokens", async () => {
+  const calls: Array<{ method?: string; origin?: string; authorization?: string }> = [];
+  const session = new AdminOidcSession(undefined, async (_input, init) => {
+    const headers = init?.headers as Record<string, string>;
+    calls.push({ method: init?.method, origin: headers?.Origin, authorization: headers?.Authorization });
+    return new Response(null, { status: headers?.Origin ? 403 : 200 });
+  }, async (_token, config) => ({ iss: config.issuer, aud: config.audience, sub: "admin-user",
+    exp: Math.floor(Date.now() / 1000) + 300 }));
+  await session.attachBrowserTokens("synthetic-access", "synthetic-id");
+  const results = await session.compareApiOrigins();
+  assert.deepEqual(results.map(result => [result.origin, result.status, result.authorized]),
+    [[null, 200, true], ["https://www.app.clevervet.tech", 403, false]]);
+  assert.deepEqual(calls.map(call => call.method), ["GET", "GET"]);
+  assert.equal(calls[0].authorization, calls[1].authorization);
+  assert.equal(JSON.stringify(results).includes("synthetic-access"), false);
+  session.clear();
+  assert.equal(session.status().authorization, "absent");
+});
+
 test("browser lifetime is configurable within a bounded range", () => {
   assert.equal(browserDurationMs(), 20 * 60_000);
   assert.equal(browserDurationMs("120"), 120 * 60_000);

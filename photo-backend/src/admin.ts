@@ -3,8 +3,9 @@ import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { readFileSync, lstatSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createConnection } from "node:net";
 import { pathToFileURL } from "node:url";
-import { AdminOidcSession, callbackUrl, loadOidcSettings } from "./oidcSession.js";
+import { AdminOidcSession } from "./oidcSession.js";
 
 const derive = promisify(scrypt);
 export interface BrowserControl {
@@ -89,6 +90,29 @@ async function readJson(request: IncomingMessage) {
   }
   return JSON.parse(data) as Record<string, unknown>;
 }
+async function browserTokens(): Promise<{ accessToken: string; idToken: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection("/dev/shm/clevervet-browser-control.sock");
+    let raw = "";
+    socket.setTimeout(7000, () => socket.destroy(Error("BROWSER_TIMEOUT")));
+    socket.on("connect", () => socket.write("snapshot\n"));
+    socket.on("data", chunk => {
+      raw += chunk.toString("utf8");
+      if (raw.length > 32000) socket.destroy(Error("BROWSER_RESPONSE_TOO_LARGE"));
+    });
+    socket.on("error", reject);
+    socket.on("end", () => {
+      try {
+        const result: unknown = JSON.parse(raw);
+        if (!result || typeof result !== "object") throw Error("BROWSER_UNAVAILABLE");
+        const value = result as Record<string, unknown>;
+        if (value.ok !== true || typeof value.accessToken !== "string" || typeof value.idToken !== "string")
+          throw Error(typeof value.error === "string" ? value.error : "BROWSER_UNAVAILABLE");
+        resolve({ accessToken: value.accessToken, idToken: value.idToken });
+      } catch (error) { reject(error); }
+    });
+  });
+}
 function send(response: ServerResponse, status: number, value: Record<string, unknown>) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
@@ -103,7 +127,7 @@ function html(response: ServerResponse, panel: boolean, csrf = "") {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>body{font:16px system-ui;max-width:70rem;margin:2rem auto;padding:1rem;color:#16342b;background:#f6faf8}button,input{font:inherit;padding:.7rem;margin:.3rem}button{cursor:pointer}.actions{display:flex;flex-wrap:wrap;gap:.35rem}label{display:block}#message{min-height:2rem}#viewer{margin-top:1rem;padding:1rem;background:#fff;border:1px solid #b8cec5;border-radius:.7rem}#screen{width:100%;aspect-ratio:4/3;background:#17201d;overflow:hidden;touch-action:none}#screen canvas{width:100%!important;height:100%!important;object-fit:contain}#vncPassword{display:inline-block;padding:.45rem;font:1rem ui-monospace,monospace;background:#edf4f1}@media(max-width:600px){body{margin:.25rem auto;padding:.65rem}.actions button{flex:1 1 11rem}#viewer{padding:.5rem}}</style>
 <h1>CleverVet · Orange Pi</h1>${panel ? `<p id="status">Проверка состояния…</p><div class="actions"><button id="start">Открыть Chromium</button>
-<button id="connect">Подключить OIDC к backend</button><button id="check">Проверить API</button><button id="stop">Закрыть Chromium</button>
+<button id="connect">Подключить текущую сессию</button><button id="check">Проверить API</button><button id="stop">Закрыть Chromium</button>
 <button id="showPassword">Показать / скопировать пароль VNC</button><button id="end">Завершить серверную сессию</button><button id="logout">Выйти из админки</button></div>
 <section id="viewer" hidden><p id="vncStatus">Подключение к Chromium…</p><div id="screen" aria-label="Удалённый экран Chromium"></div><p><output id="vncPassword" hidden></output></p></section>` :
 `<form id="login"><label>Пароль администратора <input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>`}
@@ -122,7 +146,7 @@ client.addEventListener('securityfailure',event=>{msg.textContent='Ошибка 
 client.addEventListener('disconnect',()=>{if(rfb!==client)return;rfb=null;vncStatus.textContent='Соединение с Chromium прервано';retryVnc()});
 }catch{vncStatus.textContent='Chromium запускается…';retryVnc()}finally{connecting=false}}
 async function refresh(){const r=await fetch('/admin/status');if(r.status===401){location.reload();return}const s=await r.json();document.getElementById('status').textContent='CleverVet: '+s.authorization+' · Учётная запись: '+(s.subject||'—')+' · API: '+s.api+' · Chromium: '+(s.browser?'работает':'остановлен');if(s.browser)void connectVnc();else disconnectVnc()}
-for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/oidc/start'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||'';if(id==='logout')location.reload();else void refresh()};
+for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/browser/attach'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||'';if(id==='logout')location.reload();else void refresh()};
 document.getElementById('showPassword').onclick=async()=>{const result=await post('/admin/vnc/password');if(result.status!==200){msg.textContent=result.error||'Пароль VNC пока недоступен';return}const output=document.getElementById('vncPassword');output.textContent=result.password;output.hidden=false;let copied=false;try{await navigator.clipboard.writeText(result.password);copied=true}catch{}msg.textContent=copied?'Пароль VNC показан и скопирован.':'Пароль VNC показан; автоматическое копирование недоступно.';setTimeout(()=>{output.textContent='';output.hidden=true},30000)};
 void refresh();setInterval(()=>void refresh(),5000);` :
 `document.getElementById('login').onsubmit=async e=>{e.preventDefault();const input=document.getElementById('password');const r=await post('/admin/login',{password:input.value});input.value='';if(r.status===200)location.reload();else msg.textContent='Неверный пароль или временная блокировка.'}`}
@@ -136,16 +160,6 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
     if (!host || !/^((127\.0\.0\.1)|(localhost)):\d+$/.test(host)) return send(response, 403, { error: "LOCAL_ONLY" });
     const incomingOrigin = request.headers.origin;
     if (incomingOrigin && incomingOrigin !== `http://${host}`) return send(response, 403, { error: "ORIGIN_DENIED" });
-    if (request.method === "GET" && request.url?.startsWith("/admin/oidc/callback?")) {
-      if (host !== "localhost:8788") return send(response, 403, { error: "CALLBACK_HOST_DENIED" });
-      const query = new URL(request.url, callbackUrl);
-      try {
-        await oidc.complete(query.searchParams.get("code") ?? "", query.searchParams.get("state") ?? "");
-        response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
-          "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
-        return response.end("Backend authorization complete. Return to the admin panel.");
-      } catch { return send(response, 400, { error: "OIDC_CALLBACK_FAILED" }); }
-    }
     const cookie = /(?:^|;\s*)cv_admin=([A-Za-z0-9_-]+)/.exec(request.headers.cookie ?? "")?.[1];
     const session = cookie ? sessions.get(cookie) : undefined;
     const valid = !!session && session.expires > Date.now();
@@ -177,20 +191,22 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
     }
     if (request.url === "/admin/browser/start") return send(response, browser.start() ? 200 : 503,
       { statusText: browser.running() ? "Chromium запускается" : "", ...(browser.running() ? {} : { error: "DISPLAY_UNAVAILABLE" }) });
-    if (request.url === "/admin/browser/stop") { browser.stop(); return send(response, 200, { statusText: "Браузер остановлен" }); }
-    if (request.url === "/admin/oidc/start") {
+    if (request.url === "/admin/browser/stop") { oidc.clear(); browser.stop(); return send(response, 200, { statusText: "Браузер остановлен" }); }
+    if (request.url === "/admin/browser/attach") {
       if (!browser.running()) return send(response, 409, { error: "BROWSER_NOT_RUNNING" });
-      let url: string;
-      try { url = oidc.begin(); } catch { return send(response, 503, { error: "OIDC_CLIENT_NOT_CONFIGURED" }); }
-      const opened = browser.open(url);
-      return send(response, opened ? 200 : 503,
-        opened ? { statusText: "OIDC authorization opened in Chromium" } : { error: "BROWSER_UNAVAILABLE" });
+      try { const tokens = await browserTokens(); await oidc.attachBrowserTokens(tokens.accessToken, tokens.idToken);
+        return send(response, 200, { statusText: "Текущая сессия подключена" }); }
+      catch { oidc.clear(); return send(response, 503, { error: "BROWSER_SESSION_UNAVAILABLE" }); }
     }
     if (request.url === "/admin/check") {
-      try { return send(response, 200, await oidc.checkApi()); }
-      catch (error) { const code = error instanceof Error ? error.message : "CLEVERVET_API_UNAVAILABLE";
-        return send(response, code === "CLEVERVET_SESSION_UNAVAILABLE" ? 401 : code === "CLEVERVET_API_FORBIDDEN" ? 403 : 503,
-          { error: code }); }
+      try { return send(response, 200, { requests: await oidc.compareApiOrigins() }); }
+      catch { return send(response, 401, { error: "CLEVERVET_SESSION_UNAVAILABLE" }); }
+    }
+    if (request.url === "/admin/s3/head") {
+      try { const input = await readJson(request); const key = input.key;
+        if (typeof key !== "string") return send(response, 400, { error: "INVALID_OBJECT_KEY" });
+        return send(response, 200, { result: await oidc.headPhotoObject(key) }); }
+      catch { return send(response, 400, { error: "S3_HEAD_UNAVAILABLE" }); }
     }
     if (request.url === "/admin/session/end") { oidc.clear(); browser.stop(); return send(response, 200, { statusText: "Серверная сессия завершена" }); }
     if (request.url === "/admin/logout") { sessions.delete(cookie!); oidc.clear(); browser.stop(); response.setHeader("Set-Cookie", "cv_admin=; HttpOnly; SameSite=Strict; Path=/admin; Max-Age=0"); return send(response, 200, { statusText: "Выход" }); }
@@ -205,7 +221,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const record = readFileSync(hashFile, "utf8");
   const browser = createBrowserControl(process.env.BROWSER_LAUNCH_SCRIPT, process.env.BROWSER_OPEN_URL_SCRIPT,
     browserDurationMs(process.env.ADMIN_BROWSER_MINUTES), process.env.VNC_PASSWORD_FILE);
-  const oidc = new AdminOidcSession(loadOidcSettings(process.env));
+  const oidc = new AdminOidcSession();
   const server = createAdminServer(record, browser, oidc);
   server.listen(8788, "127.0.0.1");
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => { oidc.clear(); browser.stop(); server.close(); });

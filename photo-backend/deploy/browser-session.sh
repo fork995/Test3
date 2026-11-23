@@ -23,6 +23,7 @@ cleanup() {
   case "${password_tmp:-}" in /dev/shm/clevervet-vnc-password.*) rm -f -- "$password_tmp" ;; esac
   rm -f -- "$password_file"
   rm -f -- "$profile_pointer"
+  rm -f -- /dev/shm/clevervet-browser-control.sock
 }
 trap cleanup EXIT INT TERM
 "$display_root/usr/bin/Xvfb" :99 -screen 0 1024x768x24 -nolisten tcp >/dev/null 2>&1 &
@@ -38,6 +39,6 @@ mv -f -- "$password_tmp" "$password_file"
 vnc_pid=$!
 python3 "$base/websockify-libs/root/usr/bin/websockify" --web "$base/noVNC" 127.0.0.1:6080 127.0.0.1:5900 >/dev/null 2>&1 &
 web_pid=$!
-"$base/pw-browsers/chromium-1255/chrome-linux-arm64/chrome" --user-data-dir="$profile" --no-first-run --disable-gpu https://www.app.clevervet.tech >/dev/null 2>&1 &
+"$base/node-v22.23.5-linux-arm64/bin/node" "$base/photo-backend/deploy/browser-session.mjs" "$profile" >/dev/null 2>&1 &
 chrome_pid=$!
 wait "$chrome_pid"

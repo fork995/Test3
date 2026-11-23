@@ -2,12 +2,14 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, lstatSync } from "node:fs";
 import type { JWTPayload } from "jose";
 import { storageCredentials, verifyToken, type OidcConfig } from "./auth.js";
+import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export const issuer = "https://dev-l4aq9wjx.eu.auth0.com/";
 export const audience = "https://api.clevervet.tech";
 export const callbackUrl = "http://localhost:8788/admin/oidc/callback";
 const jwksUrl = `${issuer}.well-known/jwks.json`;
 const apiUrl = "https://backend.clevervet.tech/api/branches";
+const originalClientId = "Hwatqjc3fRO6qJRGrd0NK2F27ePXiygY";
 export interface OidcSettings { clientId: string; clientSecret?: string }
 export type TokenVerifier = (token: string, config: OidcConfig) => Promise<JWTPayload>;
 type Stored = { accessToken: string; idToken: string; subject: string; expiresAt: number;
@@ -125,5 +127,67 @@ export class AdminOidcSession {
     this.api = "available";
     this.lastCheckAt = new Date().toISOString();
     return this.status();
+  }
+  async attachBrowserTokens(accessToken: string, idToken: string): Promise<void> {
+    this.clear();
+    const access = await this.verify(accessToken, { issuer, audience, jwksUrl });
+    const id = await this.verify(idToken, { issuer, audience: originalClientId, jwksUrl });
+    if (!access.sub || access.sub !== id.sub || !access.exp || !id.exp ||
+      Math.min(access.exp, id.exp) * 1000 <= Date.now()) throw Error("BROWSER_TOKEN_INVALID");
+    let s3Ready = false;
+    try { storageCredentials(id); s3Ready = true; } catch { /* claim not present */ }
+    const expiresAt = Math.min(access.exp, id.exp) * 1000;
+    this.stored = { accessToken, idToken, subject: access.sub, expiresAt,
+      accessExpiresAt: access.exp * 1000, idExpiresAt: id.exp * 1000, s3Ready };
+    this.authorization = "active";
+    this.lastExpiry = new Date(expiresAt).toISOString();
+  }
+  async compareApiOrigins() {
+    this.status();
+    if (!this.stored) throw Error("CLEVERVET_SESSION_UNAVAILABLE");
+    const results = [];
+    for (const origin of [undefined, "https://www.app.clevervet.tech"]) {
+      const started = performance.now();
+      try {
+        const response = await this.fetchImpl(apiUrl, { method: "GET", redirect: "error", cache: "no-store",
+          headers: { Authorization: `Bearer ${this.stored.accessToken}`, Accept: "application/json",
+            ...(origin ? { Origin: origin } : {}) }, signal: AbortSignal.timeout(10_000) });
+        await response.body?.cancel().catch(() => {});
+        results.push({ origin: origin ?? null, status: response.status, authorized: response.status === 200,
+          durationMs: Math.round(performance.now() - started) });
+      } catch { results.push({ origin: origin ?? null, status: null, authorized: false,
+        durationMs: Math.round(performance.now() - started) }); }
+    }
+    this.api = results.some(result => result.authorized) ? "available" : "unavailable";
+    this.lastCheckAt = new Date().toISOString();
+    return results;
+  }
+  async headPhotoObject(key: string) {
+    this.status();
+    if (!this.stored) throw Error("CLEVERVET_SESSION_UNAVAILABLE");
+    if (!/^[0-9a-f-]{36}\.jpg$/i.test(key)) throw Error("INVALID_OBJECT_KEY");
+    const credentials = storageCredentials((await this.verify(this.stored.idToken,
+      { issuer, audience: originalClientId, jwksUrl })));
+    const results = [];
+    for (const origin of [undefined, "https://www.app.clevervet.tech"]) {
+      const client = new S3Client({ region: "ru-central1", endpoint: "https://storage.yandexcloud.net",
+        forcePathStyle: true, credentials, maxAttempts: 1 });
+      if (origin) client.middlewareStack.add(next => async args => {
+        const request = args.request as { headers?: Record<string, string> };
+        if (request.headers) request.headers.origin = origin;
+        return next(args);
+      }, { step: "build", name: "originalOriginReadOnly" });
+      const started = performance.now();
+      try {
+        const result = await client.send(new HeadObjectCommand({ Bucket: "clevervet-patient-photos", Key: key }));
+        results.push({ status: result.$metadata.httpStatusCode ?? 200, durationMs: Math.round(performance.now() - started),
+          signed: true, origin: origin ?? null });
+      } catch (error) {
+        const value = error as { $metadata?: { httpStatusCode?: number } };
+        results.push({ status: value.$metadata?.httpStatusCode ?? null,
+          durationMs: Math.round(performance.now() - started), signed: true, origin: origin ?? null });
+      } finally { client.destroy(); }
+    }
+    return results;
   }
 }
