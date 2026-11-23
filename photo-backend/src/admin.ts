@@ -209,7 +209,7 @@ function html(response: ServerResponse, panel: boolean, csrf = "") {
 `<form id="login"><label>Пароль администратора <input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>`}
 <p id="message" role="status"></p><script nonce="${nonce}">
 const msg=document.getElementById('message');const csrf=${JSON.stringify(csrf)};
-async function post(path,data={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(data)});return {status:r.status,...await r.json()}}
+async function post(path,data={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(data)});if(!r.headers.get('Content-Type')?.includes('application/json'))return {status:r.status,error:'HTTP_'+r.status+'_NON_JSON'};return {status:r.status,...await r.json()}}
 ${panel ? `let rfb=null;let connecting=false;let connectFailed=false;let connected=false;let socketOpen=false;let vncGeneration=0;let connectTimer;
 const viewer=document.getElementById('viewer');const screen=document.getElementById('screen');const vncStatus=document.getElementById('vncStatus');const reconnect=document.getElementById('reconnect');const vncStages=document.getElementById('vncStages');
 const stageNames=['credentials','module_import','rfb_constructor','websocket','rfb_handshake','connected'];

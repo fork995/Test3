@@ -37,6 +37,8 @@ function vncPath(url) {
   return path;
 }
 function target(url) {
+  // The credential endpoint belongs to the admin backend, not websockify.
+  if (url === "/admin/vnc/password") return { port: adminPort, path: url, vnc: false };
   const path = vncPath(url);
   if (path) return { port: vncPort, path, vnc: true };
   if (url === "/admin" || url.startsWith("/admin/")) return { port: adminPort, path: url, vnc: false };
