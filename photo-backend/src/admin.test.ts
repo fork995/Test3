@@ -25,6 +25,7 @@ test("admin protects browser connection, token checks and VNC password", async (
     if (!address || typeof address === "string") throw Error("No address");
     const base = `http://127.0.0.1:${address.port}`;
     assert.equal((await fetch(base + "/admin/browser/attach", { method: "POST" })).status, 401);
+    assert.equal((await fetch(base + "/admin/browser/insert-text", { method: "POST" })).status, 401);
     const login = await fetch(base + "/admin/login", { method: "POST",
       body: JSON.stringify({ password: "synthetic-admin-password-123" }) });
     const cookie = login.headers.get("set-cookie")?.split(";")[0];
@@ -41,10 +42,13 @@ test("admin protects browser connection, token checks and VNC password", async (
     const csrf = /const csrf="([A-Za-z0-9_-]+)"/.exec(page)?.[1];
     assert.ok(csrf);
     assert.match(page, /Подключить текущую сессию/);
+    assert.match(page, /id="textOpen"[^>]*>Вставить текст/);
     assert.doesNotMatch(page, /localStorage|vnc\.html\?|[?&]password=/);
     assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie } })).status, 403);
+    assert.equal((await fetch(base + "/admin/browser/insert-text", { method: "POST", headers: { Cookie: cookie } })).status, 403);
     const headers = { Cookie: cookie, "X-CSRF-Token": csrf };
     assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers })).status, 202);
+    assert.equal((await fetch(base + "/admin/browser/insert-text", { method: "POST", headers, body: JSON.stringify({ text: "x".repeat(16001) }) })).status, 400);
     assert.equal((await fetch(base + "/admin/vnc/password", { method: "POST", headers: { Cookie: cookie } })).status, 403);
     const password = await fetch(base + "/admin/vnc/password", { method: "POST", headers });
     assert.equal(password.status, 200);

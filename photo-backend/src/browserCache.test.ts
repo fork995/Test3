@@ -26,3 +26,24 @@ test("reads only the two SDK tokens from an original-origin session cache", () =
     else Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: oldStorage });
   }
 });
+
+test("finds tokens in localStorage and detects unexpected token format", () => {
+  const saved = Object.getOwnPropertyDescriptors(globalThis);
+  const values = new Map<string, string>();
+  const storage = { get length() { return values.size; }, key(i: number) { return [...values.keys()][i] ?? null; },
+    getItem(key: string) { return values.get(key) ?? null; } };
+  Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "https://www.app.clevervet.tech" } });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { length: 0 } });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+  try {
+    values.set("sdk", JSON.stringify({ authzData: "access.payload.signature", authnResult: { id_token: "id.payload.signature" } }));
+    assert.deepEqual(browserCacheProbe(), { accessToken: "access.payload.signature", idToken: "id.payload.signature" });
+    values.set("sdk", JSON.stringify({ authzData: "opaque", authnResult: { id_token: "id.payload.signature" } }));
+    assert.throws(() => browserCacheProbe(), /TOKEN_FORMAT_UNEXPECTED/);
+  } finally {
+    for (const key of ["location", "sessionStorage", "localStorage"]) {
+      if (saved[key]) Object.defineProperty(globalThis, key, saved[key]);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});

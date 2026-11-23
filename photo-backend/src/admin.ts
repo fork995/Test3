@@ -159,11 +159,23 @@ export function createBrowserControl(script?: string, durationMs = browserDurati
 }
 async function readJson(request: IncomingMessage) {
   let data = "";
+  request.setEncoding("utf8");
   for await (const chunk of request) {
     data += chunk.toString();
-    if (data.length > 4096) throw Error("Request too large");
+    if (data.length > 65536) throw Error("Request too large");
   }
   return JSON.parse(data) as Record<string, unknown>;
+}
+async function insertBrowserText(text: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection("/dev/shm/clevervet-browser-control.sock");
+    let raw = "";
+    socket.setTimeout(7000, () => socket.destroy(Error("TIMEOUT")));
+    socket.on("connect", () => socket.write("insert " + JSON.stringify({ text }) + "\n"));
+    socket.on("data", chunk => { raw += chunk.toString("utf8"); if (raw.length > 1024) socket.destroy(); });
+    socket.on("error", reject);
+    socket.on("end", () => { try { resolve(JSON.parse(raw).ok === true); } catch { reject(Error("BAD_RESPONSE")); } });
+  });
 }
 async function browserTokens(): Promise<{ accessToken: string; idToken: string }> {
   return new Promise((resolve, reject) => {
@@ -205,7 +217,7 @@ function html(response: ServerResponse, panel: boolean, csrf = "") {
 <button id="connect">Подключить текущую сессию</button><button id="check">Проверить API</button><button id="stop">Закрыть Chromium</button>
 <button id="showPassword">Показать / скопировать пароль VNC</button><button id="end">Завершить серверную сессию</button><button id="logout">Выйти из админки</button></div>
 <label>Ключ существующего JPEG для проверки HEAD <input id="s3Key" autocomplete="off" spellcheck="false" placeholder="UUID.jpg"></label><button id="headObject">Проверить S3 HEAD</button>
-<section id="viewer" hidden><p id="vncStatus">Подключение к Chromium…</p><button id="reconnect" hidden>Повторить подключение noVNC</button><ol id="vncStages" aria-label="Этапы подключения noVNC"></ol><div id="screen" aria-label="Удалённый экран Chromium"></div><p><output id="vncPassword" hidden></output></p></section>` :
+<section id="viewer" hidden><p id="vncStatus">Подключение к Chromium…</p><button id="reconnect" hidden>Повторить подключение noVNC</button><ol id="vncStages" aria-label="Этапы подключения noVNC"></ol><button id="textOpen" type="button">Вставить текст</button><div id="textPanel" hidden><label>Текст для передачи<textarea id="pasteText" rows="4" autocomplete="off"></textarea></label><button id="textSend" type="button">Передать в Chromium</button><button id="textPaste" type="button">Вставить в выбранное поле</button></div><div id="screen" aria-label="Удалённый экран Chromium"></div><p><output id="vncPassword" hidden></output></p></section>` :
 `<form id="login"><label>Пароль администратора <input id="password" type="password" autocomplete="current-password" required></label><button>Войти</button></form>`}
 <p id="message" role="status"></p><script nonce="${nonce}">
 const msg=document.getElementById('message');const csrf=${JSON.stringify(csrf)};
@@ -246,6 +258,10 @@ const stageName=connected?'connected':socketOpen?'rfb_handshake':'websocket';sta
 }catch(error){if(socket)socket.close();if(generation===vncGeneration)failVnc(currentStage,error,password)}finally{if(generation===vncGeneration)connecting=false}}
 async function refresh(){const r=await fetch('/admin/status');if(r.status===401){location.reload();return}const s=await r.json();const phase=s.browserState.phase;document.getElementById('status').textContent='CleverVet: '+s.authorization+' · Учётная запись: '+(s.subject||'—')+' · API: '+s.api+' · Chromium: '+({ready:'готов',starting:'запускается',stopping:'останавливается',stopped:'остановлен',failed:'ошибка'}[phase]||phase);if(phase==='ready'){void connectVnc()}else{if(!viewer.hidden)disconnectVnc();if(phase==='failed')msg.textContent='Ошибка запуска Chromium: '+s.browserState.reason}}
 reconnect.onclick=()=>{clearTimeout(connectTimer);clearTimeout(frameTimer);const current=rfb;rfb=null;if(current)current.disconnect();screen.replaceChildren();connectFailed=false;connected=false;socketOpen=false;reconnect.hidden=true;void connectVnc()};
+const textPanel=document.getElementById('textPanel');const pasteText=document.getElementById('pasteText');
+document.getElementById('textOpen').onclick=()=>{textPanel.hidden=!textPanel.hidden;if(!textPanel.hidden)pasteText.focus()};
+document.getElementById('textSend').onclick=async()=>{if(!rfb||!connected){msg.textContent='Chromium не подключён';return}const text=pasteText.value;pasteText.value='';try{const result=await post('/admin/browser/insert-text',{text});msg.textContent=result.status===200?'Текст вставлен в активное поле':'Выберите поле в Chromium и повторите передачу.'}catch{msg.textContent='Не удалось передать текст в Chromium'}};
+document.getElementById('textPaste').onclick=()=>{if(!rfb||!connected){msg.textContent='Chromium не подключён';return}rfb.clipboardPasteFrom(pasteText.value);pasteText.value='';rfb.sendKey(0xffe3,'ControlLeft',true);rfb.sendKey(0x76,'KeyV');rfb.sendKey(0xffe3,'ControlLeft',false);msg.textContent='Команда вставки отправлена';};
 for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/browser/attach'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||(r.requests?JSON.stringify(r.requests):'');if(id==='logout')location.reload();else void refresh()};
 document.getElementById('showPassword').onclick=async()=>{const result=await post('/admin/vnc/password');if(result.status!==200){msg.textContent=result.error||'Пароль VNC пока недоступен';return}const output=document.getElementById('vncPassword');output.textContent=result.password;output.hidden=false;let copied=false;try{await navigator.clipboard.writeText(result.password);copied=true}catch{}msg.textContent=copied?'Пароль VNC показан и скопирован.':'Пароль VNC показан; автоматическое копирование недоступно.';setTimeout(()=>{output.textContent='';output.hidden=true},30000)};
 document.getElementById('headObject').onclick=async()=>{const input=document.getElementById('s3Key');const key=input.value.trim();input.value='';const result=await post('/admin/s3/head',{key});msg.textContent=result.error||JSON.stringify(result.result)};
@@ -290,6 +306,16 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
       const password = browser.password();
       return password ? send(response, 200, { password }) : send(response, 503, { error: "VNC_NOT_READY" });
     }
+    if (request.url === "/admin/browser/insert-text") {
+      if (!browser.running()) return send(response, 409, { error: "BROWSER_NOT_RUNNING" });
+      try {
+        const input = await readJson(request);
+        if (typeof input.text !== "string" || !input.text || Buffer.byteLength(input.text) > 16000)
+          return send(response, 400, { error: "INVALID_TEXT" });
+        return await insertBrowserText(input.text) ? send(response, 200, { statusText: "OK" }) :
+          send(response, 409, { error: "ACTIVE_FIELD_REQUIRED" });
+      } catch { return send(response, 503, { error: "INSERT_UNAVAILABLE" }); }
+    }
     if (request.url === "/admin/browser/start") {
       const started = browser.start();
       const state = await browser.status();
@@ -299,9 +325,17 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
     if (request.url === "/admin/browser/stop") { oidc.clear(); await browser.stop(); return send(response, 200, { statusText: "Браузер остановлен" }); }
     if (request.url === "/admin/browser/attach") {
       if (!browser.running()) return send(response, 409, { error: "BROWSER_NOT_RUNNING" });
-      try { const tokens = await browserTokens(); await oidc.attachBrowserTokens(tokens.accessToken, tokens.idToken);
-        return send(response, 200, { statusText: "Текущая сессия подключена" }); }
-      catch { oidc.clear(); return send(response, 503, { error: "BROWSER_SESSION_UNAVAILABLE" }); }
+      let tokens: Awaited<ReturnType<typeof browserTokens>>;
+      try { tokens = await browserTokens(); }
+      catch (error) {
+        oidc.clear();
+        const allowed = ["NO_SESSION", "STORAGE_UNAVAILABLE", "TOKEN_FORMAT_UNEXPECTED", "AMBIGUOUS_SESSION", "EVALUATE_FAILED"];
+        const code = error instanceof Error && allowed.includes(error.message) ? error.message : "BROWSER_SESSION_UNAVAILABLE";
+        return send(response, 503, { error: code });
+      }
+      try { await oidc.attachBrowserTokens(tokens.accessToken, tokens.idToken); }
+      catch { oidc.clear(); return send(response, 401, { error: "JWT_VERIFICATION_FAILED" }); }
+      return send(response, 200, { statusText: "Текущая сессия подключена" });
     }
     if (request.url === "/admin/check") {
       try { return send(response, 200, { requests: await oidc.compareApiOrigins() }); }
