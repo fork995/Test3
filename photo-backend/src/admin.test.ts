@@ -29,7 +29,9 @@ test("admin protects browser connection, token checks and VNC password", async (
       body: JSON.stringify({ password: "synthetic-admin-password-123" }) });
     const cookie = login.headers.get("set-cookie")?.split(";")[0];
     assert.ok(cookie);
-    const page = await (await fetch(base + "/admin", { headers: { Cookie: cookie } })).text();
+    const pageResponse = await fetch(base + "/admin", { headers: { Cookie: cookie } });
+    assert.match(pageResponse.headers.get("content-security-policy") ?? "", /img-src data:/);
+    const page = await pageResponse.text();
     const inlineScript = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(page)?.[1];
     assert.ok(inlineScript);
     assert.doesNotThrow(() => new Script(inlineScript));
