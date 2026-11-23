@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { readFileSync, lstatSync } from "node:fs";
+import { readFileSync, lstatSync, appendFileSync, chmodSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -13,6 +13,25 @@ export interface BrowserControl {
   stop(): void;
   running(): boolean;
   password(): string | undefined;
+  status(): Promise<{ phase: "stopped" | "starting" | "ready" | "failed"; reason?: string }>;
+}
+function browserEvent(event: string, details: Record<string, string | number | null> = {}) {
+  const path = process.env.ADMIN_BROWSER_EVENT_LOG;
+  if (!path) return;
+  try {
+    appendFileSync(path, JSON.stringify({ at: new Date().toISOString(), event, ...details }) + "\n",
+      { mode: 0o600, flag: "a" });
+    if (process.platform !== "win32") chmodSync(path, 0o600);
+  } catch { /* diagnostics must not crash the admin server */ }
+}
+async function portReady(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    const done = (ready: boolean) => { socket.destroy(); resolve(ready); };
+    socket.setTimeout(500, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
 }
 export async function hashAdminPassword(password: string) {
   if (password.length < 16) throw Error("Admin password must be at least 16 characters");
@@ -45,33 +64,77 @@ export function createBrowserControl(script?: string, durationMs = browserDurati
   passwordFile?: string): BrowserControl {
   let child: ChildProcess | undefined;
   let timer: NodeJS.Timeout | undefined;
+  let phase: "stopped" | "starting" | "ready" | "failed" = "stopped";
+  let reason: string | undefined;
+  let stopRequested = false;
+  let startedAt = 0;
   const control: BrowserControl = {
     start() {
       if (!script) return false;
-      if (child && child.exitCode === null) return true;
+      if (child && child.exitCode === null && child.signalCode === null) return true;
       if (timer) clearTimeout(timer);
-      child = spawn(script, [], { detached: true, stdio: "ignore", shell: false });
+      phase = "starting";
+      startedAt = Date.now();
+      reason = undefined;
+      stopRequested = false;
+      browserEvent("start_requested");
+      try { child = spawn(script, [], { detached: true, stdio: "ignore", shell: false }); }
+      catch { phase = "failed"; reason = "SPAWN_FAILED"; browserEvent("spawn_failed"); return false; }
       const launched = child;
-      const finished = () => {
+      browserEvent("spawned", { pid: launched.pid ?? null });
+      const finished = (code: number | null, signal: NodeJS.Signals | null) => {
         if (child !== launched) return;
         child = undefined;
         if (timer) clearTimeout(timer);
         timer = undefined;
+        phase = stopRequested ? "stopped" : "failed";
+        reason = stopRequested ? undefined : `PROCESS_EXIT_${code ?? signal ?? "UNKNOWN"}`;
+        browserEvent("exited", { code, signal: signal ?? null, expected: stopRequested ? 1 : 0 });
       };
-      child.once("error", finished);
+      child.once("error", (error: NodeJS.ErrnoException) => {
+        if (child !== launched) return;
+        phase = "failed";
+        reason = `SPAWN_${error.code ?? "ERROR"}`;
+        browserEvent("spawn_error", { code: error.code ?? "ERROR" });
+        child = undefined;
+        if (timer) clearTimeout(timer);
+      });
       child.once("exit", finished);
       timer = setTimeout(() => control.stop(), durationMs);
       timer.unref();
       return true;
     },
     stop() {
+      stopRequested = true;
+      browserEvent("stop_requested", { pid: child?.pid ?? null });
       if (timer) clearTimeout(timer);
       if (child?.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch { /* already stopped */ } }
       child = undefined;
       timer = undefined;
+      phase = "stopped";
+      reason = undefined;
     },
-    running() { return !!child && child.exitCode === null; },
+    running() { return !!child && child.exitCode === null && child.signalCode === null; },
     password() { return this.running() ? readVncPassword(passwordFile) : undefined; },
+    async status() {
+      if (phase === "failed") return { phase, reason };
+      if (!this.running()) return { phase: "stopped" };
+      const [vnc, web] = await Promise.all([portReady(5900), portReady(6080)]);
+      let browserSocket = false;
+      try { const info = lstatSync("/dev/shm/clevervet-browser-control.sock"); browserSocket = info.isSocket(); }
+      catch { /* not ready */ }
+      const ready = vnc && web && browserSocket && !!this.password();
+      if (ready && phase !== "ready") { phase = "ready"; browserEvent("ready", { pid: child?.pid ?? null }); }
+      if (!ready && Date.now() - startedAt > 20_000) {
+        browserEvent("readiness_timeout", { vnc: vnc ? 1 : 0, websockify: web ? 1 : 0,
+          browserSocket: browserSocket ? 1 : 0, password: this.password() ? 1 : 0 });
+        this.stop();
+        phase = "failed";
+        reason = "READINESS_TIMEOUT";
+        return { phase, reason };
+      }
+      return { phase: ready ? "ready" : "starting" };
+    },
   };
   return control;
 }
@@ -139,7 +202,7 @@ client.addEventListener('credentialsrequired',async()=>{const latest=await post(
 client.addEventListener('securityfailure',event=>{msg.textContent='Ошибка VNC-аутентификации: '+(event.detail?.reason||'доступ отклонён')});
 client.addEventListener('disconnect',()=>{if(rfb!==client)return;rfb=null;vncStatus.textContent='Соединение с Chromium прервано';retryVnc()});
 }catch{vncStatus.textContent='Chromium запускается…';retryVnc()}finally{connecting=false}}
-async function refresh(){const r=await fetch('/admin/status');if(r.status===401){location.reload();return}const s=await r.json();document.getElementById('status').textContent='CleverVet: '+s.authorization+' · Учётная запись: '+(s.subject||'—')+' · API: '+s.api+' · Chromium: '+(s.browser?'работает':'остановлен');if(s.browser)void connectVnc();else disconnectVnc()}
+async function refresh(){const r=await fetch('/admin/status');if(r.status===401){location.reload();return}const s=await r.json();const phase=s.browserState.phase;document.getElementById('status').textContent='CleverVet: '+s.authorization+' · Учётная запись: '+(s.subject||'—')+' · API: '+s.api+' · Chromium: '+({ready:'готов',starting:'запускается',stopped:'остановлен',failed:'ошибка'}[phase]||phase);if(phase==='ready')void connectVnc();else{disconnectVnc();if(phase==='failed')msg.textContent='Ошибка запуска Chromium: '+s.browserState.reason}}
 for(const [id,path] of [['start','/admin/browser/start'],['connect','/admin/browser/attach'],['check','/admin/check'],['stop','/admin/browser/stop'],['end','/admin/session/end'],['logout','/admin/logout']])document.getElementById(id).onclick=async()=>{const r=await post(path);msg.textContent=r.error||r.statusText||(r.requests?JSON.stringify(r.requests):'');if(id==='logout')location.reload();else void refresh()};
 document.getElementById('showPassword').onclick=async()=>{const result=await post('/admin/vnc/password');if(result.status!==200){msg.textContent=result.error||'Пароль VNC пока недоступен';return}const output=document.getElementById('vncPassword');output.textContent=result.password;output.hidden=false;let copied=false;try{await navigator.clipboard.writeText(result.password);copied=true}catch{}msg.textContent=copied?'Пароль VNC показан и скопирован.':'Пароль VNC показан; автоматическое копирование недоступно.';setTimeout(()=>{output.textContent='';output.hidden=true},30000)};
 document.getElementById('headObject').onclick=async()=>{const input=document.getElementById('s3Key');const key=input.value.trim();input.value='';const result=await post('/admin/s3/head',{key});msg.textContent=result.error||JSON.stringify(result.result)};
@@ -176,7 +239,7 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
     }
     if (!valid) return send(response, 401, { error: "AUTH_REQUIRED" });
     if (request.method === "GET" && request.url === "/admin/status") return send(response, 200,
-      { ...oidc.status(), browser: browser.running() });
+      { ...oidc.status(), browser: browser.running(), browserState: await browser.status() });
     if (request.method !== "POST" || request.headers["x-csrf-token"] !== session.csrf)
       return send(response, 403, { error: "CSRF_DENIED" });
     if (request.url === "/admin/vnc/password") {
@@ -184,8 +247,11 @@ export function createAdminServer(passwordRecord: string, browser: BrowserContro
       const password = browser.password();
       return password ? send(response, 200, { password }) : send(response, 503, { error: "VNC_NOT_READY" });
     }
-    if (request.url === "/admin/browser/start") return send(response, browser.start() ? 200 : 503,
-      { statusText: browser.running() ? "Chromium запускается" : "", ...(browser.running() ? {} : { error: "DISPLAY_UNAVAILABLE" }) });
+    if (request.url === "/admin/browser/start") {
+      const started = browser.start();
+      return send(response, started ? 202 : 503,
+        started ? { statusText: "Chromium запускается", browserState: await browser.status() } : { error: "SPAWN_FAILED" });
+    }
     if (request.url === "/admin/browser/stop") { oidc.clear(); browser.stop(); return send(response, 200, { statusText: "Браузер остановлен" }); }
     if (request.url === "/admin/browser/attach") {
       if (!browser.running()) return send(response, 409, { error: "BROWSER_NOT_RUNNING" });

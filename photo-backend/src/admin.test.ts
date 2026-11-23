@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAdminServer, hashAdminPassword, type BrowserControl } from "./admin.js";
+import { createAdminServer, createBrowserControl, hashAdminPassword, type BrowserControl } from "./admin.js";
+
+test("exited launch is reported as failed and can be restarted", async () => {
+  const control = createBrowserControl(process.execPath, 300_000);
+  assert.equal(control.start(), true);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal((await control.status()).phase, "failed");
+  assert.equal(control.start(), true);
+  control.stop();
+  assert.equal((await control.status()).phase, "stopped");
+});
 
 test("admin protects browser connection, token checks and VNC password", async () => {
   let running = false;
   const browser: BrowserControl = { start() { running = true; return true; },
-    stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; } };
+    stop() { running = false; }, running() { return running; }, password() { return running ? "a1b2c3d4" : undefined; },
+    async status() { return { phase: running ? "ready" as const : "stopped" as const }; } };
   const server = createAdminServer(await hashAdminPassword("synthetic-admin-password-123"), browser);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   try {
@@ -24,7 +35,7 @@ test("admin protects browser connection, token checks and VNC password", async (
     assert.doesNotMatch(page, /localStorage|vnc\.html\?|password=/);
     assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie } })).status, 403);
     const headers = { Cookie: cookie, "X-CSRF-Token": csrf };
-    assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers })).status, 200);
+    assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers })).status, 202);
     assert.equal((await fetch(base + "/admin/vnc/password", { method: "POST", headers: { Cookie: cookie } })).status, 403);
     const password = await fetch(base + "/admin/vnc/password", { method: "POST", headers });
     assert.equal(password.status, 200);
