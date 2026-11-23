@@ -11,7 +11,7 @@ browser_root=$base/browser-libs/root
 export LD_LIBRARY_PATH="$display_root/usr/lib/aarch64-linux-gnu:$browser_root/usr/lib/aarch64-linux-gnu"
 export FONTCONFIG_FILE="$browser_root/etc/fonts/fonts.conf"
 export XDG_DATA_DIRS="$browser_root/usr/share:$display_root/usr/share:/usr/share"
-export XKB_CONFIG_ROOT="$display_root/usr/share/X11/xkb"
+export XKB_CONFIG_ROOT=/usr/share/X11/xkb
 export PYTHONPATH="$base/websockify-libs/root/usr/lib/python3/dist-packages"
 export DISPLAY=:99
 cleanup() {
@@ -27,6 +27,7 @@ trap cleanup EXIT INT TERM
 display_pid=$!
 sleep 2
 kill -0 "$display_pid"
+setxkbmap -display :99 -layout us
 openssl rand -hex 4 > "$password_file"
 "$display_root/usr/bin/x11vnc" -display :99 -localhost -rfbport 5900 -passwdfile "$password_file" -forever -shared >/dev/null 2>&1 &
 vnc_pid=$!
