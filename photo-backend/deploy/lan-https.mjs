@@ -73,6 +73,12 @@ const server = createServer({ key, cert, minVersion: "TLSv1.2" }, async (request
     method: request.method, headers: forwardedHeaders(request, route.port), timeout: 15000 }, upstreamResponse => {
     const headers = { ...upstreamResponse.headers, "strict-transport-security": "max-age=31536000",
       "x-content-type-options": "nosniff" };
+    // Safari does not consistently match a same-origin wss: URL against CSP 'self'.
+    // Only the exact LAN TLS endpoint is allowed; no external WebSocket origin is added.
+    if (route.path === "/admin" && headers["content-security-policy"]) {
+      headers["content-security-policy"] = headers["content-security-policy"].replace(
+        "connect-src 'self'", `connect-src 'self' wss://${address}:${port}`);
+    }
     if (headers["set-cookie"]) headers["set-cookie"] = headers["set-cookie"].map(value =>
       value.includes("; Secure") ? value : `${value}; Secure`);
     response.writeHead(upstreamResponse.statusCode ?? 502, headers);

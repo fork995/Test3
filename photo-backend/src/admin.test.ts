@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Script } from "node:vm";
 import { createAdminServer, createBrowserControl, hashAdminPassword, type BrowserControl } from "./admin.js";
 
 test("exited launch is reported as failed and can be restarted", async () => {
@@ -29,10 +30,16 @@ test("admin protects browser connection, token checks and VNC password", async (
     const cookie = login.headers.get("set-cookie")?.split(";")[0];
     assert.ok(cookie);
     const page = await (await fetch(base + "/admin", { headers: { Cookie: cookie } })).text();
+    const inlineScript = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(page)?.[1];
+    assert.ok(inlineScript);
+    assert.doesNotThrow(() => new Script(inlineScript));
+    for (const stage of ["credentials", "module_import", "rfb_constructor", "websocket", "rfb_handshake", "connected"])
+      assert.match(page, new RegExp(stage));
+    assert.match(page, /new URL\('\/admin\/vnc\/websockify',location\.href\)/);
     const csrf = /const csrf="([A-Za-z0-9_-]+)"/.exec(page)?.[1];
     assert.ok(csrf);
     assert.match(page, /Подключить текущую сессию/);
-    assert.doesNotMatch(page, /localStorage|vnc\.html\?|password=/);
+    assert.doesNotMatch(page, /localStorage|vnc\.html\?|[?&]password=/);
     assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers: { Cookie: cookie } })).status, 403);
     const headers = { Cookie: cookie, "X-CSRF-Token": csrf };
     assert.equal((await fetch(base + "/admin/browser/start", { method: "POST", headers })).status, 202);
