@@ -59,6 +59,9 @@ try {
     rfbState: rfb?._rfbConnectionState, socket: rfb?._sock?.readyState,
     framebuffer: [rfb?._fbWidth, rfb?._fbHeight],
     display: [rfb?._display?._fbWidth, rfb?._display?._fbHeight],
+    update: { rects: rfb?._FBU?.rects, encoding: rfb?._FBU?.encoding,
+      width: rfb?._FBU?.width, height: rfb?._FBU?.height },
+    receiveBytes: rfb?._sock?.rQlen(), pending: rfb?._display?.pending(), flushing: rfb?._flushing,
     pixel: [...document.querySelector("#screen canvas").getContext("2d").getImageData(0, 0, 1, 1).data] }));
   process.stdout.write("rfb_display=" + JSON.stringify(display) + "\n");
   process.stdout.write(`button_connected=true canvas=${canvas.width}x${canvas.height} image_bytes=${imageBytes}\n`);
