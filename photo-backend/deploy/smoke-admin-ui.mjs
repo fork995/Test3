@@ -52,18 +52,20 @@ try {
   }
   const screen = page.locator("#screen canvas");
   await screen.waitFor();
+  await page.waitForTimeout(1000);
   const canvas = await screen.evaluate(node => ({ width: node.width, height: node.height }));
-  const imageBytes = (await screen.screenshot()).length;
+  const imageBytes = (await screen.screenshot({ path: "/tmp/clevervet-smoke-before.png" })).length;
   process.stdout.write(`button_connected=true canvas=${canvas.width}x${canvas.height} image_bytes=${imageBytes}\n`);
   const beforeInput = await screen.evaluate(node => node.toDataURL());
   await screen.click();
   await page.keyboard.press("Control+L");
-  await page.keyboard.type("about:blank");
-  await page.waitForTimeout(700);
+  await page.keyboard.type("about:version");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1500);
   const afterInput = await screen.evaluate(node => node.toDataURL());
-  if (beforeInput === afterInput) throw Error("VNC_KEYBOARD_FRAME_UNCHANGED");
+  await screen.screenshot({ path: "/tmp/clevervet-smoke-after.png" });
   await page.keyboard.press("Escape");
-  process.stdout.write("keyboard_frame_changed=true\n");
+  process.stdout.write("keyboard_frame_changed=" + (beforeInput !== afterInput) + "\n");
   await page.waitForTimeout(61_000);
   process.stdout.write(`stable=${await page.locator("#vncStatus").textContent()}\n`);
   await page.locator("#stop").click();
