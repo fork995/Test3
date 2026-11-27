@@ -118,3 +118,23 @@ export function isSessionStorageEvent(event: StorageEvent): boolean {
     event.newValue === null
   );
 }
+
+const STAY_LOGOUT_EVENT = "clevervet-mobile:test3-stay-logout:v1";
+const LOGOUT_KEY = "clevervet.mobile.test3.explicit-logout.v1";
+let logoutInMemory = false;
+
+export function markStayLogout() {
+  try { localStorage.setItem(LOGOUT_KEY, "1"); logoutInMemory = false; }
+  catch { logoutInMemory = true; }
+  window.dispatchEvent(new CustomEvent(STAY_LOGOUT_EVENT));
+}
+
+export function clearStayLogout() {
+  logoutInMemory = false;
+  try { localStorage.removeItem(LOGOUT_KEY); } catch { /* memory fallback */ }
+}
+
+export function stayAutoBlocked() {
+  try { return logoutInMemory || localStorage.getItem(LOGOUT_KEY) === "1"; }
+  catch { return logoutInMemory; }
+}

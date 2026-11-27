@@ -40,6 +40,7 @@ jobs:
           git rev-parse HEAD > app/dist/source-revision.txt
           mkdir -p app/dist/stay
           cp stay/clevervet-mobile-test3.user.js app/dist/stay/
+          cp stay/DeepStay.txt app/dist/stay/
       - uses: actions/upload-pages-artifact@v3
         if: steps.revision.outputs.changed == 'true'
         with:

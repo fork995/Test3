@@ -26,6 +26,9 @@ import {
 } from "./stayAuth";
 import {
   clearSession,
+  markStayLogout,
+  clearStayLogout,
+  stayAutoBlocked,
   isSessionStorageEvent,
   restoreSession,
   saveSession,
@@ -230,7 +233,7 @@ export function App() {
             source={session.source}
             branches={session.branches}
             initialTab={session.startOnPatients ? "patients" : undefined}
-            onLogout={() => logout()}
+            onLogout={() => { markStayLogout(); logout(); }}
             onExpire={(message) =>
               logout(message ?? expiredSessionMessage(session.authOrigin))
             }
@@ -251,6 +254,8 @@ export function App() {
             authOrigin,
             persistenceWarning,
           ) => {
+            clearStayLogout();
+            window.dispatchEvent(new CustomEvent("clevervet-mobile:test3-stay-connected:v1"));
             clearAuthImportParameter();
             setQuickAuth(false);
             setMessage(persistenceWarning);
@@ -311,9 +316,7 @@ function Connect({
       pending.current = null;
       if (input.current) input.current.value = "";
     };
-    window.addEventListener("pagehide", clear);
     return () => {
-      window.removeEventListener("pagehide", clear);
       clear();
     };
   }, []);
@@ -427,10 +430,12 @@ function Connect({
   useEffect(() => {
     const receive = (event: Event) => {
       if (stayAttempted.current || busyRef.current) return;
-      const transfer = parseStayAuthTransfer((event as CustomEvent).detail);
+      const detail = (event as CustomEvent).detail;
+      if (stayAutoBlocked() && detail?.manual !== true) return;
+      const transfer = parseStayAuthTransfer(detail);
       if (!transfer) return;
       stayAttempted.current = true;
-      void connectToken(transfer.token, "stay", transfer.expiresAt);
+      void connectToken(transfer.token, "stay");
     };
     const bridgeReady = () => requestStayAuth();
     window.addEventListener(STAY_TOKEN_EVENT, receive);

@@ -1,0 +1,143 @@
+// ==UserScript==
+// @name         newest — Stay Auth Bridge
+// @namespace    https://fork995.github.io/Test3/
+// @version      13.1.0
+// @description  Извлекает access_token и скрывает кнопку после входа
+// @match        https://app.clevervet.tech/*
+// @match        https://www.app.clevervet.tech/*
+// @match        https://fork995.github.io/Test3/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==
+
+(function () {
+    'use strict';
+    if (window.__deepStayBridge130) return;
+    window.__deepStayBridge130 = true;
+
+    const STAY_READY_EVENT        = 'clevervet-mobile:test3-stay-ready:v1';
+    const STAY_BRIDGE_READY_EVENT = 'clevervet-mobile:test3-stay-bridge-ready:v1';
+    const STAY_TOKEN_EVENT        = 'clevervet-mobile:test3-stay-token:v1';
+    const STAY_TRANSFER_MAX_AGE_MS = 3 * 60 * 1000;
+    const BRIDGE_KEY = 'clevervet_test3_auth_bridge_v1';
+
+    // --- Сторона Test3 ---
+    if (location.hostname === 'fork995.github.io') {
+        // The app validates transferred credentials through its API.
+
+        let sending = false;
+        const btn = document.createElement('button');
+        btn.id = 'stay-import-btn';
+        btn.textContent = '🔐 Загрузить токен CleverVet';
+        btn.style.cssText = 'position:fixed;top:10px;right:10px;z-index:999999;padding:10px 14px;border-radius:20px;border:none;background:#0a7;color:#fff;font:bold 14px sans-serif;box-shadow:0 4px 10px rgba(0,0,0,.3);';
+        async function send(manual) {
+            if (sending) return;
+            try {
+                if (!manual && localStorage.getItem('clevervet.mobile.test3.explicit-logout.v1') === '1') return;
+            } catch (_) { if (!manual) return; }
+            sending = true;
+            try {
+                const raw = await Promise.resolve(GM_getValue(BRIDGE_KEY, null));
+                const now = Date.now();
+                if (!raw || typeof raw.token !== 'string' || !raw.token || !Number.isFinite(raw.capturedAt) || !Number.isFinite(raw.expiresAt) || raw.capturedAt > now + 30000 || now - raw.capturedAt > STAY_TRANSFER_MAX_AGE_MS || raw.expiresAt <= now) {
+                    if (raw) await Promise.resolve(GM_deleteValue(BRIDGE_KEY));
+                    if (manual) alert('Свежий токен не найден. Откройте CleverVet и обновите токен для Test3.');
+                    return;
+                }
+                await Promise.resolve(GM_deleteValue(BRIDGE_KEY));
+                window.dispatchEvent(new CustomEvent(STAY_TOKEN_EVENT, { detail: { ...raw, manual } }));
+            } catch (_) {
+                if (manual) alert('Не удалось прочитать данные Stay. Проверьте разрешения расширения.');
+            } finally { sending = false; }
+        }
+        window.addEventListener(STAY_READY_EVENT, () => { btn.hidden = false; void send(false); });
+        window.addEventListener('clevervet-mobile:test3-stay-logout:v1', () => {
+            void Promise.resolve(GM_deleteValue(BRIDGE_KEY)).catch(() => {});
+            btn.hidden = false;
+        });
+        window.addEventListener('clevervet-mobile:test3-stay-connected:v1', () => { btn.hidden = true; });
+        btn.onclick = () => { void send(true); };
+        try { btn.hidden = !!localStorage.getItem('clevervet.mobile.test3.auth-session.v1'); } catch (_) {}
+        document.body.appendChild(btn);
+        window.dispatchEvent(new CustomEvent(STAY_BRIDGE_READY_EVENT, { detail: { version: 1 } }));
+    }
+
+    // --- Сторона CleverVet ---
+    if (location.hostname.includes('clevervet.tech')) {
+
+        function findTokenInObj(obj) {
+            if (!obj || typeof obj !== 'object') return null;
+            if (obj.authnResult && typeof obj.authnResult === 'object') {
+                if (obj.authnResult.access_token) return obj.authnResult.access_token;
+            }
+            for (let key in obj) {
+                if (typeof obj[key] === 'object') {
+                    const res = findTokenInObj(obj[key]);
+                    if (res) return res;
+                }
+            }
+            return null;
+        }
+
+        function extractTokenFromStorage() {
+            const storages = [sessionStorage, localStorage];
+            for (const storage of storages) {
+                for (let i = 0; i < storage.length; i++) {
+                    const key = storage.key(i);
+                    const val = storage.getItem(key);
+                    if (!val) continue;
+
+                    if (val.includes('authnResult') || val.includes('access_token')) {
+                        try {
+                            const parsed = JSON.parse(val);
+                            const token = findTokenInObj(parsed);
+                            if (token && token.startsWith('eyJ') && token.length > 50) {
+                                return token;
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    if (key.toLowerCase().includes('authzdata') && val.startsWith('eyJ') && val.length > 50) {
+                        return val;
+                    }
+                }
+            }
+            return null;
+        }
+
+        async function saveToken() {
+            const token = extractTokenFromStorage();
+            if (token) {
+                await Promise.resolve(GM_setValue(BRIDGE_KEY, { 
+                    version: 1, 
+                    token: token, 
+                    capturedAt: Date.now(), 
+                    expiresAt: Date.now() + STAY_TRANSFER_MAX_AGE_MS 
+                }));
+                return true;
+            }
+            return false;
+        }
+
+        setTimeout(() => { void saveToken().catch(() => {}); }, 2500);
+        
+        const hint = document.createElement('div');
+        hint.style.cssText = 'position:fixed;bottom:12px;right:12px;background:#222;color:#fff;padding:8px 12px;border-radius:8px;font:12px sans-serif;z-index:99999;opacity:0.8;cursor:pointer;';
+        hint.textContent = '🔄 Обновить токен для Test3';
+        
+        hint.onclick = async () => {
+            if (await saveToken().catch(() => false)) {
+                hint.textContent = '✅ Токен готов!';
+                hint.style.background = '#0a7';
+                setTimeout(() => hint.remove(), 3000);
+            } else {
+                alert('Токен не найден. Убедитесь, что вы авторизованы, и обновите страницу CleverVet.');
+            }
+        };
+        
+        setTimeout(() => document.body.appendChild(hint), 2500);
+    }
+})();

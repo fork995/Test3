@@ -176,7 +176,7 @@ it("leaves manual login usable after a network failure", async () => {
   expect(container.textContent).not.toContain("private network details");
 });
 
-it("uses the earlier GM expiry and gives Stay-specific renewal guidance", async () => {
+it("does not treat the transfer deadline as session expiry", async () => {
   vi.useFakeTimers();
   const now = Date.parse("2026-10-27T12:00:00Z");
   vi.setSystemTime(now);
@@ -189,7 +189,5 @@ it("uses the earlier GM expiry and gives Stay-specific renewal guidance", async 
   await send(transfer(token, now, now + 1000));
   expect(container.querySelector(".bottom-nav")).not.toBeNull();
   await act(async () => vi.advanceTimersByTimeAsync(1000));
-  expect(container.querySelector("#jwt")).not.toBeNull();
-  expect(container.textContent).toContain("снова откройте Test2");
-  expect(container.textContent).not.toContain("запустите команду");
+  expect(container.querySelector(".bottom-nav")).not.toBeNull();
 });

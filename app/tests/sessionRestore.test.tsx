@@ -215,3 +215,40 @@ it("does not accept a competing Stay token while restoration is in progress", as
     saved,
   );
 });
+
+it.each([30, 120, 180, 300, 900, 1800])('restores a valid session after %s seconds and lifecycle events', async (seconds) => {
+  vi.useFakeTimers();
+  const start = Date.now();
+  vi.stubGlobal('fetch', vi.fn(async () => response()));
+  await stayLogin(jwt(Math.floor((start + 7_200_000) / 1000)));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(seconds * 1000);
+    window.dispatchEvent(new Event('pageshow'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(container.querySelector('.bottom-nav')).not.toBeNull();
+  await remount();
+  expect(container.querySelector('.bottom-nav')).not.toBeNull();
+  vi.useRealTimers();
+});
+
+it('blocks automatic login after logout and allows an explicit new Stay transfer', async () => {
+  const token = jwt();
+  const fetcher = vi.fn(async () => response());
+  vi.stubGlobal('fetch', fetcher);
+  await stayLogin(token);
+  const settings = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('Настройки'))!;
+  await act(async () => settings.click());
+  await act(async () => button('Выйти и очистить данные').click());
+  const detail = { version: 1, token, capturedAt: Date.now(), expiresAt: Date.now() + 180000 };
+  await act(async () => { window.dispatchEvent(new CustomEvent(STAY_TOKEN_EVENT, { detail })); });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await remount();
+  await act(async () => { window.dispatchEvent(new CustomEvent(STAY_TOKEN_EVENT, { detail })); });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => { window.dispatchEvent(new CustomEvent(STAY_TOKEN_EVENT, { detail: { ...detail, manual: true } })); });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('.bottom-nav')).not.toBeNull();
+});
